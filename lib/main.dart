@@ -329,7 +329,7 @@ class _HomePageState extends State<HomePage> {
                                   _clearBarcodes();
                                   Navigator.pop(context);
                                 },
-                                icon: const Icon(Icons.delete_all, color: Colors.red),
+                                icon: const Icon(Icons.delete_forever, color: Colors.red),
                                 label: const Text('Delete All', style: TextStyle(color: Colors.red)),
                               ),
                             if (_barcodes.isNotEmpty && !_isLoadingProducts)
@@ -434,7 +434,7 @@ class _HomePageState extends State<HomePage> {
                         ],
                       ),
                       child: Icon(
-                        _isScanning ? Icons.camera_alt : Icons.camera_alt_outlined,
+                        _isScanning ? Icons.camera_alt : Icons.cameraswitch,
                         size: 40,
                         color: Colors.white,
                       ),

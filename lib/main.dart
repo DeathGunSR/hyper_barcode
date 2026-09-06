@@ -4,7 +4,21 @@ import 'package:excel/excel.dart' as excel_lib;
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:http/http.dart' as http;
 import 'dart:io';
+import 'dart:convert';
+
+class ProductInfo {
+  final String name;
+  final String coverPrice;
+  final String salePrice;
+
+  ProductInfo({
+    required this.name,
+    required this.coverPrice,
+    required this.salePrice,
+  });
+}
 
 void main() {
   runApp(const BarcodeScannerApp());
@@ -37,6 +51,13 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final List<String> _barcodes = [];
   bool _isScanning = false;
+  bool _isLoadingProducts = false;
+  Map<String, ProductInfo> _productMap = {};
+
+  // WooCommerce API configuration
+  final String _wooCommerceUrl = 'https://ebimarket.ir';
+  final String _consumerKey = 'ck_59df85eaad37b7c4f6bf77ba0707aca37dc42939';
+  final String _consumerSecret = 'cs_71f8ba694ba54566be8209503145bdab47903e4e';
 
   void _addBarcode(String barcode) {
     setState(() {
@@ -56,12 +77,105 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  Future<void> _exportToExcel() async {
+  Future<void> _fetchProductInfo() async {
+    if (_barcodes.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No barcodes to fetch')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isLoadingProducts = true;
+    });
+
+    try {
+      final url = Uri.parse(
+        '$_wooCommerceUrl/wp-json/wc/v3/products?per_page=100&consumer_key=$_consumerKey&consumer_secret=$_consumerSecret&_fields=id,sku,regular_price,sale_price,name,meta_data',
+      );
+
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final List<dynamic> products = json.decode(response.body);
+        Map<String, ProductInfo> productMap = {};
+
+        for (var product in products) {
+          final sku = product['sku']?.toString() ?? '';
+          final name = product['name']?.toString() ?? '';
+          final regularPrice = product['regular_price']?.toString() ?? '0';
+          final salePrice = product['sale_price']?.toString() ?? '';
+
+          // Extract barcodes from meta_data
+          String allBarcodes = '';
+          if (product['meta_data'] != null) {
+            for (var meta in product['meta_data']) {
+              if (meta['key'] == '_holoo_barcodes') {
+                allBarcodes = meta['value']?.toString() ?? '';
+                break;
+              }
+            }
+          }
+
+          // Also use SKU as a barcode
+          if (sku.isNotEmpty) {
+            productMap[sku] = ProductInfo(
+              name: name,
+              coverPrice: regularPrice,
+              salePrice: salePrice.isNotEmpty ? salePrice : regularPrice,
+            );
+          }
+
+          // Map all barcodes (comma-separated) to this product
+          if (allBarcodes.isNotEmpty) {
+            final barcodeList = allBarcodes.split(',');
+            for (var barcode in barcodeList) {
+              final trimmedBarcode = barcode.trim();
+              if (trimmedBarcode.isNotEmpty) {
+                productMap[trimmedBarcode] = ProductInfo(
+                  name: name,
+                  coverPrice: regularPrice,
+                  salePrice: salePrice.isNotEmpty ? salePrice : regularPrice,
+                );
+              }
+            }
+          }
+        }
+
+        setState(() {
+          _productMap = productMap;
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Product info loaded for ${productMap.length} items')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to fetch product information')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
+    } finally {
+      setState(() {
+        _isLoadingProducts = false;
+      });
+    }
+  }
+
+  Future<void> _exportToExcel({bool withProductInfo = false}) async {
     if (_barcodes.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('No barcodes to export')),
       );
       return;
+    }
+
+    // If exporting with product info, fetch it first
+    if (withProductInfo && _productMap.isEmpty) {
+      await _fetchProductInfo();
     }
 
     // Request storage permission
@@ -80,12 +194,31 @@ class _HomePageState extends State<HomePage> {
     var excel = excel_lib.Excel.createExcel();
     excel_lib.Sheet sheetObject = excel['Barcodes'];
     
-    // Add header
-    sheetObject.cell(excel_lib.CellIndex.indexByString('A1')).value = excel_lib.TextCellValue('Barcode');
-    
-    // Add barcodes in column A
-    for (int i = 0; i < _barcodes.length; i++) {
-      sheetObject.cell(excel_lib.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: i + 1)).value = excel_lib.TextCellValue(_barcodes[i]);
+    if (withProductInfo) {
+      // Add headers for 4 columns
+      sheetObject.cell(excel_lib.CellIndex.indexByString('A1')).value = excel_lib.TextCellValue('Barcode');
+      sheetObject.cell(excel_lib.CellIndex.indexByString('B1')).value = excel_lib.TextCellValue('Product Name');
+      sheetObject.cell(excel_lib.CellIndex.indexByString('C1')).value = excel_lib.TextCellValue('Cover Price');
+      sheetObject.cell(excel_lib.CellIndex.indexByString('D1')).value = excel_lib.TextCellValue('Sale Price');
+      
+      // Add barcodes with product info
+      for (int i = 0; i < _barcodes.length; i++) {
+        final barcode = _barcodes[i];
+        final product = _productMap[barcode];
+        
+        sheetObject.cell(excel_lib.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: i + 1)).value = excel_lib.TextCellValue(barcode);
+        sheetObject.cell(excel_lib.CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: i + 1)).value = excel_lib.TextCellValue(product?.name ?? '');
+        sheetObject.cell(excel_lib.CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: i + 1)).value = excel_lib.TextCellValue(product?.coverPrice ?? '');
+        sheetObject.cell(excel_lib.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: i + 1)).value = excel_lib.TextCellValue(product?.salePrice ?? '');
+      }
+    } else {
+      // Add header
+      sheetObject.cell(excel_lib.CellIndex.indexByString('A1')).value = excel_lib.TextCellValue('Barcode');
+      
+      // Add barcodes in column A
+      for (int i = 0; i < _barcodes.length; i++) {
+        sheetObject.cell(excel_lib.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: i + 1)).value = excel_lib.TextCellValue(_barcodes[i]);
+      }
     }
 
     // Get save directory
@@ -105,7 +238,8 @@ class _HomePageState extends State<HomePage> {
 
     // Generate filename with timestamp
     final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final filePath = '${directory.path}/barcodes_$timestamp.xlsx';
+    final fileName = withProductInfo ? 'products_$timestamp.xlsx' : 'barcodes_$timestamp.xlsx';
+    final filePath = '${directory.path}/$fileName';
     
     // Save file
     final file = File(filePath);
@@ -114,8 +248,10 @@ class _HomePageState extends State<HomePage> {
     // Share the file
     final result = await Share.shareXFiles(
       [XFile(filePath)],
-      subject: 'Barcodes Export',
-      text: 'Exported barcodes from Barcode Scanner App',
+      subject: withProductInfo ? 'Products Export' : 'Barcodes Export',
+      text: withProductInfo 
+        ? 'Exported products from Barcode Scanner App' 
+        : 'Exported barcodes from Barcode Scanner App',
     );
 
     if (result.status == ShareResultStatus.success) {
@@ -195,6 +331,21 @@ class _HomePageState extends State<HomePage> {
                                 },
                                 icon: const Icon(Icons.delete_all, color: Colors.red),
                                 label: const Text('Delete All', style: TextStyle(color: Colors.red)),
+                              ),
+                            if (_barcodes.isNotEmpty && !_isLoadingProducts)
+                              ElevatedButton.icon(
+                                onPressed: () {
+                                  Navigator.pop(context);
+                                  _exportToExcel(withProductInfo: true);
+                                },
+                                icon: _isLoadingProducts 
+                                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) 
+                                  : const Icon(Icons.cloud_upload),
+                                label: const Text('Export with Product Info'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.blue,
+                                  foregroundColor: Colors.white,
+                                ),
                               ),
                             TextButton(
                               onPressed: () => Navigator.pop(context),

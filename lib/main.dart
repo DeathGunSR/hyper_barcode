@@ -44,6 +44,12 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  void _removeBarcode(int index) {
+    setState(() {
+      _barcodes.removeAt(index);
+    });
+  }
+
   void _clearBarcodes() {
     setState(() {
       _barcodes.clear();
@@ -125,13 +131,6 @@ class _HomePageState extends State<HomePage> {
       appBar: AppBar(
         title: const Text('Barcode Scanner'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.delete),
-            onPressed: _barcodes.isEmpty ? null : _clearBarcodes,
-            tooltip: 'Clear All',
-          ),
-        ],
       ),
       body: Column(
         children: [
@@ -170,6 +169,13 @@ class _HomePageState extends State<HomePage> {
                                   ),
                                   title: Text(_barcodes[index]),
                                   subtitle: const Text('Tap to copy'),
+                                  trailing: IconButton(
+                                    icon: const Icon(Icons.delete, color: Colors.red),
+                                    onPressed: () {
+                                      _removeBarcode(index);
+                                      Navigator.pop(context);
+                                    },
+                                  ),
                                   onTap: () {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(content: Text('Copied: ${_barcodes[index]}')),
@@ -181,6 +187,15 @@ class _HomePageState extends State<HomePage> {
                             ),
                           ),
                           actions: [
+                            if (_barcodes.isNotEmpty)
+                              TextButton.icon(
+                                onPressed: () {
+                                  _clearBarcodes();
+                                  Navigator.pop(context);
+                                },
+                                icon: const Icon(Icons.delete_all, color: Colors.red),
+                                label: const Text('Delete All', style: TextStyle(color: Colors.red)),
+                              ),
                             TextButton(
                               onPressed: () => Navigator.pop(context),
                               child: const Text('Close'),

@@ -1,37 +1,11 @@
 ```
-# Build artifacts
-*.apk
-*.aar
-*.so
-*.dex
-*.jar
-*.class
-
-# Gradle
 .gradle/
-build/
-intermediates/
-outputs/
-
-# Android Studio
-.idea/
+local.properties
 *.iml
+*.ipr
 *.iws
+.idea/
 *.log
-
-# Temp files
-*.tmp
-*.swp
-
-# Environment
-.env
-.env.local
-*.env.*
-
-# Dependencies
-node_modules/
-venv/
-.venv/
-__pycache__/
-*.egg-info/
+.DS_Store
+Thumbs.db
 ```

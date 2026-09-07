@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:excel/excel.dart' as excel_lib;
 import 'package:path_provider/path_provider.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:http/http.dart' as http;
 import 'dart:io';
@@ -178,18 +177,6 @@ class _HomePageState extends State<HomePage> {
       await _fetchProductInfo();
     }
 
-    // Request storage permission
-    var status = await Permission.storage.status;
-    if (!status.isGranted) {
-      status = await Permission.storage.request();
-      if (!status.isGranted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Storage permission denied')),
-        );
-        return;
-      }
-    }
-
     // Create Excel file
     var excel = excel_lib.Excel.createExcel();
     excel_lib.Sheet sheetObject = excel['Barcodes'];
@@ -221,21 +208,9 @@ class _HomePageState extends State<HomePage> {
       }
     }
 
-    // Get save directory
-    Directory? directory;
-    if (Platform.isAndroid) {
-      directory = await getExternalStorageDirectory();
-    } else {
-      directory = await getApplicationDocumentsDirectory();
-    }
-
-    if (directory == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not access storage')),
-      );
-      return;
-    }
-
+    // Get app documents directory (no permission needed)
+    final directory = await getApplicationDocumentsDirectory();
+    
     // Generate filename with timestamp
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final fileName = withProductInfo ? 'products_$timestamp.xlsx' : 'barcodes_$timestamp.xlsx';
@@ -329,7 +304,7 @@ class _HomePageState extends State<HomePage> {
                                   _clearBarcodes();
                                   Navigator.pop(context);
                                 },
-                                icon: const Icon(Icons.delete_all, color: Colors.red),
+                                icon: const Icon(Icons.delete_forever, color: Colors.red),
                                 label: const Text('Delete All', style: TextStyle(color: Colors.red)),
                               ),
                             if (_barcodes.isNotEmpty && !_isLoadingProducts)
@@ -434,7 +409,7 @@ class _HomePageState extends State<HomePage> {
                         ],
                       ),
                       child: Icon(
-                        _isScanning ? Icons.camera_alt : Icons.camera_alt_outlined,
+                        _isScanning ? Icons.camera_alt : Icons.cameraswitch,
                         size: 40,
                         color: Colors.white,
                       ),

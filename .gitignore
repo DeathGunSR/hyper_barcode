@@ -1,19 +1,15 @@
 ```
-# Dart/Flutter build outputs
-.dart_tool/
-.build/
-bin/
-
 # Dependencies
-.pub-cache/
-pubspec.lock
+.dart_tool/
+.packages
+.pub/
 
-# IDE files
-.idea/
-.vscode/
-*.iml
-*.ipr
-*.iws
+# Build outputs
+build/
+*.apk
+*.aab
+*.ipa
+*.app
 
 # Logs
 *.log
@@ -22,7 +18,14 @@ pubspec.lock
 # Environment variables
 .env
 .env.local
-*.env.*
+.env.*
+!.env.example
+
+# IDE specific
+.idea/
+.vscode/
+*.swp
+*.swo
 
 # OS generated files
 .DS_Store

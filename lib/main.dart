@@ -2,11 +2,34 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:excel/excel.dart' as excel_lib;
 import 'package:path_provider/path_provider.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
 import 'dart:convert';
+
+// Logger class for debugging
+class AppLogger {
+  static final List<String> _logs = [];
+  static final int _maxLogs = 100;
+
+  static void log(String message) {
+    final timestamp = DateTime.now().toString().substring(0, 19);
+    final logEntry = '[$timestamp] $message';
+    _logs.add(logEntry);
+    if (_logs.length > _maxLogs) {
+      _logs.removeAt(0);
+    }
+    print(logEntry);
+  }
+
+  static List<String> getLogs() => List.unmodifiable(_logs);
+
+  static void clear() {
+    _logs.clear();
+    log('Logs cleared');
+  }
+}
 
 class ProductInfo {
   final String name;
@@ -50,14 +73,32 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final List<String> _barcodes = [];
-  bool _isScanning = false;
-  bool _isLoadingProducts = false;
   Map<String, ProductInfo> _productMap = {};
+  String _storagePath = 'Application Documents Directory';
 
   // WooCommerce API configuration
   final String _wooCommerceUrl = 'https://ebimarket.ir';
   final String _consumerKey = 'ck_59df85eaad37b7c4f6bf77ba0707aca37dc42939';
   final String _consumerSecret = 'cs_71f8ba694ba54566be8209503145bdab47903e4e';
+
+  @override
+  void initState() {
+    super.initState();
+    AppLogger.log('App initialized');
+    _loadStoragePath();
+  }
+
+  Future<void> _loadStoragePath() async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      setState(() {
+        _storagePath = directory.path;
+      });
+      AppLogger.log('Storage path loaded: $_storagePath');
+    } catch (e) {
+      AppLogger.log('Error loading storage path: $e');
+    }
+  }
 
   void _addBarcode(String barcode) {
     setState(() {
@@ -85,16 +126,16 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
-    setState(() {
-      _isLoadingProducts = true;
-    });
+    AppLogger.log('Fetching product info for ${_barcodes.length} barcodes');
 
     try {
       final url = Uri.parse(
         '$_wooCommerceUrl/wp-json/wc/v3/products?per_page=100&consumer_key=$_consumerKey&consumer_secret=$_consumerSecret&_fields=id,sku,regular_price,sale_price,name,meta_data',
       );
 
+      AppLogger.log('API Request: $url');
       final response = await http.get(url);
+      AppLogger.log('API Response Status: ${response.statusCode}');
 
       if (response.statusCode == 200) {
         final List<dynamic> products = json.decode(response.body);
@@ -146,22 +187,21 @@ class _HomePageState extends State<HomePage> {
           _productMap = productMap;
         });
 
+        AppLogger.log('Product info loaded for ${productMap.length} items');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Product info loaded for ${productMap.length} items')),
         );
       } else {
+        AppLogger.log('Failed to fetch product info. Status: ${response.statusCode}');
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Failed to fetch product information')),
         );
       }
     } catch (e) {
+      AppLogger.log('Error fetching product info: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: $e')),
       );
-    } finally {
-      setState(() {
-        _isLoadingProducts = false;
-      });
     }
   }
 
@@ -173,21 +213,12 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
+    AppLogger.log('Starting export. With product info: $withProductInfo');
+
     // If exporting with product info, fetch it first
     if (withProductInfo && _productMap.isEmpty) {
+      AppLogger.log('Fetching product info before export');
       await _fetchProductInfo();
-    }
-
-    // Request storage permission
-    var status = await Permission.storage.status;
-    if (!status.isGranted) {
-      status = await Permission.storage.request();
-      if (!status.isGranted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Storage permission denied')),
-        );
-        return;
-      }
     }
 
     // Create Excel file
@@ -211,6 +242,7 @@ class _HomePageState extends State<HomePage> {
         sheetObject.cell(excel_lib.CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: i + 1)).value = excel_lib.TextCellValue(product?.coverPrice ?? '');
         sheetObject.cell(excel_lib.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: i + 1)).value = excel_lib.TextCellValue(product?.salePrice ?? '');
       }
+      AppLogger.log('Excel created with product info for ${_barcodes.length} items');
     } else {
       // Add header
       sheetObject.cell(excel_lib.CellIndex.indexByString('A1')).value = excel_lib.TextCellValue('Barcode');
@@ -219,33 +251,27 @@ class _HomePageState extends State<HomePage> {
       for (int i = 0; i < _barcodes.length; i++) {
         sheetObject.cell(excel_lib.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: i + 1)).value = excel_lib.TextCellValue(_barcodes[i]);
       }
+      AppLogger.log('Excel created with ${_barcodes.length} barcodes');
     }
 
-    // Get save directory
-    Directory? directory;
-    if (Platform.isAndroid) {
-      directory = await getExternalStorageDirectory();
-    } else {
-      directory = await getApplicationDocumentsDirectory();
-    }
-
-    if (directory == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not access storage')),
-      );
-      return;
-    }
-
+    // Get app documents directory (no permission needed)
+    final directory = await getApplicationDocumentsDirectory();
+    
     // Generate filename with timestamp
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final fileName = withProductInfo ? 'products_$timestamp.xlsx' : 'barcodes_$timestamp.xlsx';
     final filePath = '${directory.path}/$fileName';
     
+    AppLogger.log('Saving file to: $filePath');
+    
     // Save file
     final file = File(filePath);
     await file.writeAsBytes(excel.encode()!);
+    
+    AppLogger.log('File saved successfully. Size: ${await file.length()} bytes');
 
     // Share the file
+    AppLogger.log('Opening share dialog');
     final result = await Share.shareXFiles(
       [XFile(filePath)],
       subject: withProductInfo ? 'Products Export' : 'Barcodes Export',
@@ -255,6 +281,7 @@ class _HomePageState extends State<HomePage> {
     );
 
     if (result.status == ShareResultStatus.success) {
+      AppLogger.log('File shared successfully');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('File shared successfully')),
       );
@@ -267,6 +294,96 @@ class _HomePageState extends State<HomePage> {
       appBar: AppBar(
         title: const Text('Barcode Scanner'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        actions: [
+          // Settings button
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Settings'),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Storage Path:',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      SelectableText(
+                        _storagePath,
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Files are saved in the app\'s documents directory.',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ],
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Close'),
+                    ),
+                  ],
+                ),
+              );
+            },
+            tooltip: 'Settings',
+          ),
+          // Logs button
+          IconButton(
+            icon: const Icon(Icons.bug_report),
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('App Logs'),
+                  content: SizedBox(
+                    width: double.maxFinite,
+                    height: 400,
+                    child: AppLogger.getLogs().isEmpty
+                        ? const Center(child: Text('No logs yet'))
+                        : ListView.builder(
+                            itemCount: AppLogger.getLogs().length,
+                            itemBuilder: (context, index) {
+                              final logs = AppLogger.getLogs();
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 2),
+                                child: SelectableText(
+                                  logs[logs.length - 1 - index],
+                                  style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                  actions: [
+                    TextButton.icon(
+                      onPressed: () {
+                        AppLogger.clear();
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Logs cleared')),
+                        );
+                      },
+                      icon: const Icon(Icons.delete_sweep, color: Colors.red),
+                      label: const Text('Clear Logs', style: TextStyle(color: Colors.red)),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Close'),
+                    ),
+                  ],
+                ),
+              );
+            },
+            tooltip: 'View Logs',
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -329,18 +446,16 @@ class _HomePageState extends State<HomePage> {
                                   _clearBarcodes();
                                   Navigator.pop(context);
                                 },
-                                icon: const Icon(Icons.delete_all, color: Colors.red),
+                                icon: const Icon(Icons.delete_forever, color: Colors.red),
                                 label: const Text('Delete All', style: TextStyle(color: Colors.red)),
                               ),
-                            if (_barcodes.isNotEmpty && !_isLoadingProducts)
+                            if (_barcodes.isNotEmpty)
                               ElevatedButton.icon(
                                 onPressed: () {
                                   Navigator.pop(context);
                                   _exportToExcel(withProductInfo: true);
                                 },
-                                icon: _isLoadingProducts 
-                                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) 
-                                  : const Icon(Icons.cloud_upload),
+                                icon: const Icon(Icons.cloud_upload),
                                 label: const Text('Export with Product Info'),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.blue,
@@ -379,6 +494,7 @@ class _HomePageState extends State<HomePage> {
                     for (final barcode in barcodes) {
                       if (barcode.rawValue != null && !_barcodes.contains(barcode.rawValue)) {
                         _addBarcode(barcode.rawValue!);
+                        AppLogger.log('Barcode scanned: ${barcode.rawValue}');
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text('Scanned: ${barcode.rawValue}'),
@@ -402,48 +518,15 @@ class _HomePageState extends State<HomePage> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Scan button (shutter-style)
-                  GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _isScanning = !_isScanning;
-                      });
-                      if (!_isScanning) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Scanning paused')),
-                        );
-                      } else {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Scanning active - point camera at barcodes')),
-                        );
-                      }
-                    },
-                    child: Container(
-                      width: 80,
-                      height: 80,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: _isScanning ? Colors.green : Colors.red,
-                        border: Border.all(color: Colors.white, width: 4),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.3),
-                            blurRadius: 8,
-                            spreadRadius: 2,
-                          ),
-                        ],
-                      ),
-                      child: Icon(
-                        _isScanning ? Icons.camera_alt : Icons.camera_alt_outlined,
-                        size: 40,
-                        color: Colors.white,
-                      ),
-                    ),
+                  // Info text
+                  const Text(
+                    'Camera is always scanning',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: Colors.green),
                   ),
-                  const SizedBox(height: 20),
-                  Text(
-                    _isScanning ? 'Scanning Active' : 'Tap to Start Scanning',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Point camera at barcodes to scan',
+                    style: TextStyle(fontSize: 14, color: Colors.grey),
                   ),
                   const SizedBox(height: 20),
                   
@@ -452,6 +535,7 @@ class _HomePageState extends State<HomePage> {
                     onPressed: _barcodes.isEmpty 
                       ? null 
                       : () {
+                          AppLogger.log('${_barcodes.length} barcodes registered');
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(content: Text('${_barcodes.length} barcodes registered')),
                           );

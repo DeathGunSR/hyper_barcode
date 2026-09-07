@@ -129,21 +129,40 @@ class _HomePageState extends State<HomePage> {
     AppLogger.log('Fetching product info for ${_barcodes.length} barcodes');
 
     try {
-      final url = Uri.parse(
-        '$_wooCommerceUrl/wp-json/wc/v3/products?per_page=100&consumer_key=$_consumerKey&consumer_secret=$_consumerSecret&_fields=id,sku,regular_price,sale_price,name,meta_data',
-      );
+      Map<String, ProductInfo> productMap = {};
+      int page = 1;
+      int perPage = 100;
+      bool hasMorePages = true;
 
-      AppLogger.log('API Request: $url');
-      final response = await http.get(url);
-      AppLogger.log('API Response Status: ${response.statusCode}');
+      // Fetch all products page by page
+      while (hasMorePages) {
+        AppLogger.log('Fetching products page $page');
+        
+        final url = Uri.parse(
+          '$_wooCommerceUrl/wp-json/wc/v3/products?per_page=$perPage&page=$page&consumer_key=$_consumerKey&consumer_secret=$_consumerSecret&_fields=id,sku,regular_price,sale_price,name,meta_data',
+        );
 
-      if (response.statusCode == 200) {
+        AppLogger.log('API Request: $url');
+        final response = await http.get(url);
+        AppLogger.log('API Response Status: ${response.statusCode}');
+
+        if (response.statusCode != 200) {
+          AppLogger.log('Failed to fetch products page $page. Status: ${response.statusCode}');
+          break;
+        }
+
         final List<dynamic> products = json.decode(response.body);
-        Map<String, ProductInfo> productMap = {};
+        
+        if (products.isEmpty) {
+          hasMorePages = false;
+          break;
+        }
+
+        AppLogger.log('Received ${products.length} products from page $page');
 
         for (var product in products) {
           final sku = product['sku']?.toString() ?? '';
-          final name = product['name']?.toString() ?? '';
+          final name = product['name']?.toString() ?? 'Unknown';
           final regularPrice = product['regular_price']?.toString() ?? '0';
           final salePrice = product['sale_price']?.toString() ?? '';
 
@@ -158,13 +177,14 @@ class _HomePageState extends State<HomePage> {
             }
           }
 
-          // Also use SKU as a barcode
+          // Map SKU to product info
           if (sku.isNotEmpty) {
             productMap[sku] = ProductInfo(
               name: name,
               coverPrice: regularPrice,
               salePrice: salePrice.isNotEmpty ? salePrice : regularPrice,
             );
+            AppLogger.log('Mapped SKU: $sku -> $name');
           }
 
           // Map all barcodes (comma-separated) to this product
@@ -178,25 +198,35 @@ class _HomePageState extends State<HomePage> {
                   coverPrice: regularPrice,
                   salePrice: salePrice.isNotEmpty ? salePrice : regularPrice,
                 );
+                AppLogger.log('Mapped Barcode: $trimmedBarcode -> $name');
               }
             }
           }
         }
 
-        setState(() {
-          _productMap = productMap;
-        });
-
-        AppLogger.log('Product info loaded for ${productMap.length} items');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Product info loaded for ${productMap.length} items')),
-        );
-      } else {
-        AppLogger.log('Failed to fetch product info. Status: ${response.statusCode}');
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to fetch product information')),
-        );
+        page++;
+        // Small delay to avoid rate limiting
+        await Future.delayed(const Duration(milliseconds: 500));
       }
+
+      setState(() {
+        _productMap = productMap;
+      });
+
+      AppLogger.log('Product info loading complete. Total products in map: ${productMap.length}');
+      
+      // Log how many scanned barcodes were found
+      int foundCount = 0;
+      for (var barcode in _barcodes) {
+        if (productMap.containsKey(barcode)) {
+          foundCount++;
+        }
+      }
+      AppLogger.log('Found product info for $foundCount out of ${_barcodes.length} scanned barcodes');
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Product info loaded: $foundCount/${_barcodes.length} barcodes matched')),
+      );
     } catch (e) {
       AppLogger.log('Error fetching product info: $e');
       ScaffoldMessenger.of(context).showSnackBar(

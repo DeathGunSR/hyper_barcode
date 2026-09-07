@@ -1,38 +1,38 @@
 ```
 # Dependencies
 .dart_tool/
-.packages
-.pub/
+.build/
+dependencies/
 
-# Build outputs
-build/
-*.apk
-*.aab
-*.app
-
-# Logs
-*.log
+# Generated plugin code
+.config/
+generated/
 
 # Environment variables
 .env
 .env.local
 .env.*
-!.env.example
 
-# IDE files
-.vscode/
-.idea/
-*.swp
-*.swo
+# Logs
+*.log
 
 # OS generated files
 .DS_Store
 Thumbs.db
 
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
 # Coverage
 coverage/
 *.coverage
+htmlcov/
 
 # Temporary files
 *.tmp
+*~
+.DS_Store
 ```

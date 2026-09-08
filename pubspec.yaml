@@ -43,6 +43,9 @@ dependencies:
   path: ^1.8.3
   pdf: ^3.10.8
   printing: ^5.11.1
+  flutter_localizations:
+    sdk: flutter
+  intl: any
 
 dev_dependencies:
   flutter_test:

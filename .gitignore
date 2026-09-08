@@ -11,10 +11,9 @@
 # Logs
 *.log
 
-# Environment
-.env
-.env.local
-*.env.*
+    Input:
+    ### Added files:
+    [src/main.py, README.md, config.json]
 
 # IDE
 .vscode/

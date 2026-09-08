@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -136,29 +137,104 @@ void main() {
   runApp(const BarcodeScannerApp());
 }
 
-class BarcodeScannerApp extends StatelessWidget {
+class BarcodeScannerApp extends StatefulWidget {
   const BarcodeScannerApp({super.key});
+
+  @override
+  State<BarcodeScannerApp> createState() => _BarcodeScannerAppState();
+}
+
+class _BarcodeScannerAppState extends State<BarcodeScannerApp> {
+  String _locale = 'fa';
+  ThemeMode _themeMode = ThemeMode.system;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _locale = prefs.getString('locale') ?? 'fa';
+      final themeIndex = prefs.getInt('theme_mode') ?? 0;
+      _themeMode = ThemeMode.values[themeIndex];
+    });
+  }
+
+  Future<void> _saveSettings(String locale, ThemeMode themeMode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('locale', locale);
+    await prefs.setInt('theme_mode', themeMode.index);
+  }
+
+  void updateLocale(String locale) {
+    setState(() => _locale = locale);
+    _saveSettings(_locale, _themeMode);
+  }
+
+  void updateThemeMode(ThemeMode mode) {
+    setState(() => _themeMode = mode);
+    _saveSettings(_locale, _themeMode);
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'بارکد اسکنر',
+      title: _locale == 'fa' ? 'بارکد اسکنر' : 'Barcode Scanner',
       debugShowCheckedModeBanner: false,
+      locale: Locale(_locale),
+      localizationsDelegates: [
+        AppLocalizationsDelegate(_locale),
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('fa'),
+        Locale('en'),
+      ],
+      themeMode: _themeMode,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: Colors.blue,
           brightness: Brightness.light,
         ),
         useMaterial3: true,
-        fontFamily: 'Tahoma',
+        fontFamily: 'Vazirmatn',
       ),
-      home: const HomePage(),
+      darkTheme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.blue,
+          brightness: Brightness.dark,
+        ),
+        useMaterial3: true,
+        fontFamily: 'Vazirmatn',
+      ),
+      home: HomePage(
+        currentLocale: _locale,
+        onLocaleChanged: updateLocale,
+        themeMode: _themeMode,
+        onThemeModeChanged: updateThemeMode,
+      ),
     );
   }
 }
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  final String currentLocale;
+  final Function(String) onLocaleChanged;
+  final ThemeMode themeMode;
+  final Function(ThemeMode) onThemeModeChanged;
+
+  const HomePage({
+    super.key,
+    required this.currentLocale,
+    required this.onLocaleChanged,
+    required this.themeMode,
+    required this.onThemeModeChanged,
+  });
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -780,7 +856,6 @@ class _HomePageState extends State<HomePage> {
                 fontWeight: pw.FontWeight.bold,
               ),
               maxLines: 2,
-              overflow: pw.TextOverflow.ellipsis,
               textAlign: pw.TextAlign.right,
             ),
           ),
@@ -857,9 +932,8 @@ class _HomePageState extends State<HomePage> {
               children: [
                 pw.Text(
                   item.barcode,
-                  style: pw.TextStyle(
+                  style: const pw.TextStyle(
                     fontSize: 9,
-                    fontFamily: 'Courier',
                     fontWeight: pw.FontWeight.bold,
                   ),
                   textAlign: pw.TextAlign.center,

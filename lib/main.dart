@@ -20,8 +20,8 @@ pw.Font? _persianFont;
 
 Future<void> _loadPersianFont() async {
   if (_persianFont == null) {
-    final fontData = await rootBundle.load('assets/fonts/Vazirmatn-Regular.ttf');
-    _persianFont = pw.Font.ttf(fontData);
+    final ByteData fontData = await rootBundle.load('assets/fonts/Vazirmatn-Regular.ttf');
+    _persianFont = pw.Font.ttf(fontData.buffer.asUint8List(fontData.offsetInBytes, fontData.lengthInBytes));
   }
 }
 
@@ -821,7 +821,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   pw.Widget _buildLabel(ScannedItem item) {
-    final font = _persianFont ?? pw.Font.helvetica;
+    final pw.Font? font = _persianFont;
     
     return pw.Container(
       width: _labelConfig.labelWidthMm * PdfPageFormat.mm,
@@ -953,7 +953,8 @@ class _HomePageState extends State<HomePage> {
               children: [
                 pw.Text(
                   item.barcode,
-                  style: const pw.TextStyle(
+                  style: pw.TextStyle(
+                    font: font,
                     fontSize: 9,
                     fontWeight: pw.FontWeight.bold,
                   ),

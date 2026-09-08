@@ -780,7 +780,6 @@ class _HomePageState extends State<HomePage> {
                 fontWeight: pw.FontWeight.bold,
               ),
               maxLines: 2,
-              overflow: pw.TextOverflow.ellipsis,
               textAlign: pw.TextAlign.right,
             ),
           ),
@@ -857,9 +856,8 @@ class _HomePageState extends State<HomePage> {
               children: [
                 pw.Text(
                   item.barcode,
-                  style: pw.TextStyle(
+                  style: const pw.TextStyle(
                     fontSize: 9,
-                    fontFamily: 'Courier',
                     fontWeight: pw.FontWeight.bold,
                   ),
                   textAlign: pw.TextAlign.center,

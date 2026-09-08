@@ -1,38 +1,31 @@
 ```
-# Dependencies
-.dart_tool/
-.build/
-dependencies/
+# Dart/Flutter build outputs
+/build/
+/.dart_tool/
+/pubspec.lock
 
-# Generated plugin code
-.config/
-generated/
+# IDE files
+/.vscode/
+/.idea/
+*.swp
+*.swo
 
 # Environment variables
 .env
 .env.local
-.env.*
+*.env.*
 
 # Logs
 *.log
 
-# OS generated files
+# Temporary files
+*.tmp
 .DS_Store
 Thumbs.db
 
-# IDE files
-.idea/
-.vscode/
-*.swp
-*.swo
-
 # Coverage
-coverage/
-*.coverage
-htmlcov/
+/coverage/
 
-# Temporary files
-*.tmp
-*~
-.DS_Store
+# Local configuration
+/local.properties
 ```

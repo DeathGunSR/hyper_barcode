@@ -1,39 +1,18 @@
 ```
 # Build artifacts
-*.pyc
-__pycache__/
-*.o
-*.obj
-*.exe
-*.dll
-*.so
-*.a
-*.out
-build/
-dist/
-target/
-# Dependencies
-node_modules/
-venv/
-.venv/
+/build/
+*.g.dart
+
+# Environment
 .env
 .env.local
-.env.*
-# IDE and editor files
-.vscode/
-.idea/
-*.swp
-*.swo
-*.tmp
-# System files
-.DS_Store
-Thumbs.db
+*.env.*
+
 # Logs
 *.log
-# Coverage
-coverage/
-htmlcov/
-.coverage
-.mypy_cache/
-.pytest_cache/
+
+# Dependencies
+.pub/
+.dart_tool/
+.packages
 ```

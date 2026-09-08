@@ -1,19 +1,24 @@
 ```
-# Build outputs
-/build/
-/bin/
-/obj/
-
-# Dependencies
-.pub/
+# Dart/Flutter specific
+.dart_tool/
 .packages
+.pub/
+build/
+*.g.dart
+*.freezed.dart
+
+# Environment
+.env
+.env.local
+*.env.*
 
 # Logs
 *.log
+**/logs
 
-    Input:
-    ### Added files:
-    [src/main.py, README.md, config.json]
+# Dependencies
+node_modules/
+vendor/
 
 # IDE
 .vscode/
@@ -21,16 +26,12 @@
 *.swp
 *.swo
 
-# OS
+# OS generated
 .DS_Store
 Thumbs.db
 
-# Coverage
-coverage/
-htmlcov/
-.coverage
-
-# Temporary files
-*.tmp
-*.temp
+# Build outputs
+dist/
+target/
+bin/
 ```

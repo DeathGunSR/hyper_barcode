@@ -6,7 +6,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
-import 'package:path/path.dart';
+import 'package:path/path.dart' as p;
 import 'dart:io';
 import 'dart:convert';
 
@@ -151,7 +151,7 @@ class _HomePageState extends State<HomePage> {
   Future<void> _initializeDatabase() async {
     try {
       final databasesPath = await getDatabasesPath();
-      final path = join(databasesPath, 'products.db');
+      final path = p.join(databasesPath, 'products.db');
       
       _database = await openDatabase(
         path,

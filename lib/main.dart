@@ -15,6 +15,16 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
+// Global font for Persian support in PDF
+pw.Font? _persianFont;
+
+Future<void> _loadPersianFont() async {
+  if (_persianFont == null) {
+    final fontData = await rootBundle.load('assets/fonts/Vazirmatn-Regular.ttf');
+    _persianFont = pw.Font.ttf(fontData);
+  }
+}
+
 // Logger class for debugging
 class AppLogger {
   static final List<String> _logs = [];
@@ -733,6 +743,9 @@ class _HomePageState extends State<HomePage> {
     AppLogger.log('Generating PDF with ${items.length} items');
 
     try {
+      // Load Persian font before generating PDF
+      await _loadPersianFont();
+      
       final pdf = pw.Document();
 
       // Calculate how many pages we need
@@ -808,6 +821,8 @@ class _HomePageState extends State<HomePage> {
   }
 
   pw.Widget _buildLabel(ScannedItem item) {
+    final font = _persianFont ?? pw.Font.helvetica;
+    
     return pw.Container(
       width: _labelConfig.labelWidthMm * PdfPageFormat.mm,
       height: _labelConfig.labelHeightMm * PdfPageFormat.mm,
@@ -836,6 +851,7 @@ class _HomePageState extends State<HomePage> {
             child: pw.Text(
               'فروشگاه اینترنتی ebimarket.ir',
               style: pw.TextStyle(
+                font: font,
                 color: PdfColors.white,
                 fontSize: 8,
                 fontWeight: pw.FontWeight.bold,
@@ -851,7 +867,8 @@ class _HomePageState extends State<HomePage> {
             padding: const pw.EdgeInsets.symmetric(horizontal: 4),
             child: pw.Text(
               item.name,
-              style: const pw.TextStyle(
+              style: pw.TextStyle(
+                font: font,
                 fontSize: 10,
                 fontWeight: pw.FontWeight.bold,
               ),
@@ -874,13 +891,15 @@ class _HomePageState extends State<HomePage> {
                     pw.Text(
                       'قیمت رو جلد',
                       style: pw.TextStyle(
+                        font: font,
                         fontSize: 7,
                         color: PdfColors.grey600,
                       ),
                     ),
                     pw.Text(
                       '${item.coverPrice} تومان',
-                      style: const pw.TextStyle(
+                      style: pw.TextStyle(
+                        font: font,
                         fontSize: 9,
                         fontWeight: pw.FontWeight.normal,
                         decoration: pw.TextDecoration.lineThrough,
@@ -898,6 +917,7 @@ class _HomePageState extends State<HomePage> {
                     pw.Text(
                       'قیمت فروش',
                       style: pw.TextStyle(
+                        font: font,
                         fontSize: 7,
                         color: PdfColors.green700,
                         fontWeight: pw.FontWeight.bold,
@@ -906,6 +926,7 @@ class _HomePageState extends State<HomePage> {
                     pw.Text(
                       '${item.salePrice} تومان',
                       style: pw.TextStyle(
+                        font: font,
                         fontSize: 12,
                         fontWeight: pw.FontWeight.bold,
                         color: PdfColors.red700,

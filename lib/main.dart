@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import 'package:excel/excel.dart' as excel_lib;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:http/http.dart' as http;
@@ -9,6 +8,10 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
 import 'dart:io';
 import 'dart:convert';
+import 'dart:typed_data';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 // Logger class for debugging
 class AppLogger {
@@ -86,16 +89,47 @@ class LocalProduct {
   }
 }
 
-class ProductInfo {
+class ScannedItem {
+  final String barcode;
   final String name;
   final String coverPrice;
   final String salePrice;
 
-  ProductInfo({
+  ScannedItem({
+    required this.barcode,
     required this.name,
     required this.coverPrice,
     required this.salePrice,
   });
+}
+
+// Label configuration settings
+class LabelConfig {
+  int labelsPerRow;
+  int labelsPerColumn;
+  double labelWidthMm;
+  double labelHeightMm;
+  double marginTopMm;
+  double marginBottomMm;
+  double marginLeftMm;
+  double marginRightMm;
+  double gapHorizontalMm;
+  double gapVerticalMm;
+
+  LabelConfig({
+    this.labelsPerRow = 3,
+    this.labelsPerColumn = 5,
+    this.labelWidthMm = 70,
+    this.labelHeightMm = 42,
+    this.marginTopMm = 10,
+    this.marginBottomMm = 10,
+    this.marginLeftMm = 5,
+    this.marginRightMm = 5,
+    this.gapHorizontalMm = 5,
+    this.gapVerticalMm = 5,
+  });
+
+  int get labelsPerPage => labelsPerRow * labelsPerColumn;
 }
 
 void main() {
@@ -108,11 +142,15 @@ class BarcodeScannerApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Barcode Scanner',
+      title: 'بارکد اسکنر',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.blue,
+          brightness: Brightness.light,
+        ),
         useMaterial3: true,
+        fontFamily: 'Tahoma',
       ),
       home: const HomePage(),
     );
@@ -134,6 +172,10 @@ class _HomePageState extends State<HomePage> {
   List<LocalProduct> _localProducts = [];
   bool _isSyncing = false;
   DateTime? _lastSyncTime;
+  
+  // Label configuration
+  LabelConfig _labelConfig = LabelConfig();
+  bool _showUniqueOnly = true;
 
   // WooCommerce API configuration
   final String _wooCommerceUrl = 'https://ebimarket.ir';
@@ -234,7 +276,6 @@ class _HomePageState extends State<HomePage> {
       final response = await http.get(url);
       
       if (response.statusCode == 200) {
-        // Parse pagination info from headers or assume large number
         totalProducts = 1000; // Estimate
       }
 
@@ -405,9 +446,11 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _addBarcode(String barcode) {
-    setState(() {
-      _barcodes.add(barcode);
-    });
+    if (!_barcodes.contains(barcode)) {
+      setState(() {
+        _barcodes.add(barcode);
+      });
+    }
   }
 
   void _removeBarcode(int index) {
@@ -425,7 +468,7 @@ class _HomePageState extends State<HomePage> {
   Future<void> _fetchProductInfo() async {
     if (_barcodes.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No barcodes to fetch')),
+        const SnackBar(content: Text('هیچ بارکدی برای دریافت اطلاعات وجود ندارد')),
       );
       return;
     }
@@ -529,124 +572,539 @@ class _HomePageState extends State<HomePage> {
       AppLogger.log('Found product info for $foundCount out of ${_barcodes.length} scanned barcodes');
       
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Product info loaded: $foundCount/${_barcodes.length} barcodes matched')),
+        SnackBar(content: Text('اطلاعات محصول دریافت شد: $foundCount از ${_barcodes.length} بارکد')),
       );
     } catch (e) {
       AppLogger.log('Error fetching product info: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
+        SnackBar(content: Text('خطا: $e')),
       );
     }
   }
 
-  Future<void> _exportToExcel({bool withProductInfo = false}) async {
-    if (_barcodes.isEmpty) {
+  List<ScannedItem> _getScannedItemsWithProductInfo() {
+    // Build a barcode to product map from local database
+    Map<String, LocalProduct> barcodeToProduct = {};
+    for (var product in _localProducts) {
+      // Map by SKU
+      barcodeToProduct[product.sku] = product;
+      // Map by main barcode
+      if (product.mainBarcode.isNotEmpty) {
+        barcodeToProduct[product.mainBarcode] = product;
+      }
+      // Map by extra barcodes
+      if (product.extraBarcodes.isNotEmpty) {
+        final extraBars = product.extraBarcodes.split(',');
+        for (var bar in extraBars) {
+          barcodeToProduct[bar.trim()] = product;
+        }
+      }
+    }
+
+    List<ScannedItem> items = [];
+    Set<String> seenBarcodes = {};
+
+    for (var barcode in _barcodes) {
+      // Skip duplicates if unique only is enabled
+      if (_showUniqueOnly && seenBarcodes.contains(barcode)) {
+        continue;
+      }
+      seenBarcodes.add(barcode);
+
+      final product = barcodeToProduct[barcode];
+      if (product != null) {
+        items.add(ScannedItem(
+          barcode: barcode,
+          name: product.name,
+          coverPrice: product.coverPrice,
+          salePrice: product.salePrice,
+        ));
+      } else {
+        // Use product map from API if available
+        final apiProduct = _productMap[barcode];
+        if (apiProduct != null) {
+          items.add(ScannedItem(
+            barcode: barcode,
+            name: apiProduct.name,
+            coverPrice: apiProduct.coverPrice,
+            salePrice: apiProduct.salePrice,
+          ));
+        } else {
+          // Fallback to barcode only
+          items.add(ScannedItem(
+            barcode: barcode,
+            name: 'محصول نامشخص',
+            coverPrice: '0',
+            salePrice: '0',
+          ));
+        }
+      }
+    }
+
+    return items;
+  }
+
+  Future<void> _exportToPdf() async {
+    final items = _getScannedItemsWithProductInfo();
+    
+    if (items.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No barcodes to export')),
+        const SnackBar(content: Text('هیچ محصولی برای چاپ وجود ندارد')),
       );
       return;
     }
 
-    AppLogger.log('Starting export. With product info: $withProductInfo');
+    AppLogger.log('Generating PDF with ${items.length} items');
 
-    // If exporting with product info, use local database
-    if (withProductInfo && _localProducts.isEmpty) {
-      AppLogger.log('Loading products from local database');
-      await _loadLocalProducts();
-    }
+    try {
+      final pdf = pw.Document();
 
-    // Create Excel file
-    var excel = excel_lib.Excel.createExcel();
-    excel_lib.Sheet sheetObject = excel['Barcodes'];
-    
-    if (withProductInfo) {
-      // Add headers for 4 columns
-      sheetObject.cell(excel_lib.CellIndex.indexByString('A1')).value = excel_lib.TextCellValue('Barcode');
-      sheetObject.cell(excel_lib.CellIndex.indexByString('B1')).value = excel_lib.TextCellValue('Product Name');
-      sheetObject.cell(excel_lib.CellIndex.indexByString('C1')).value = excel_lib.TextCellValue('Cover Price');
-      sheetObject.cell(excel_lib.CellIndex.indexByString('D1')).value = excel_lib.TextCellValue('Sale Price');
-      
-      // Build a barcode to product map from local database
-      Map<String, LocalProduct> barcodeToProduct = {};
-      for (var product in _localProducts) {
-        // Map by SKU
-        barcodeToProduct[product.sku] = product;
-        // Map by main barcode
-        if (product.mainBarcode.isNotEmpty) {
-          barcodeToProduct[product.mainBarcode] = product;
-        }
-        // Map by extra barcodes
-        if (product.extraBarcodes.isNotEmpty) {
-          final extraBars = product.extraBarcodes.split(',');
-          for (var bar in extraBars) {
-            barcodeToProduct[bar.trim()] = product;
-          }
-        }
+      // Calculate how many pages we need
+      final totalPages = (items.length / _labelConfig.labelsPerPage).ceil();
+
+      for (int pageIndex = 0; pageIndex < totalPages; pageIndex++) {
+        final startIndex = pageIndex * _labelConfig.labelsPerPage;
+        final endIndex = (startIndex + _labelConfig.labelsPerPage).clamp(0, items.length);
+        final pageItems = items.sublist(startIndex, endIndex);
+
+        pdf.addPage(
+          pw.Page(
+            pageFormat: PdfPageFormat.a4,
+            build: (pw.Context context) {
+              return pw.Container(
+                padding: pw.EdgeInsets.only(
+                  top: _labelConfig.marginTopMm * PdfPageFormat.mm,
+                  bottom: _labelConfig.marginBottomMm * PdfPageFormat.mm,
+                  left: _labelConfig.marginLeftMm * PdfPageFormat.mm,
+                  right: _labelConfig.marginRightMm * PdfPageFormat.mm,
+                ),
+                child: pw.GridView(
+                  crossAxisCount: _labelConfig.labelsPerRow,
+                  children: List.generate(_labelConfig.labelsPerPage, (index) {
+                    if (index < pageItems.length) {
+                      final item = pageItems[index];
+                      return _buildLabel(item);
+                    } else {
+                      // Empty placeholder
+                      return pw.Container();
+                    }
+                  }),
+                ),
+              );
+            },
+          ),
+        );
       }
+
+      AppLogger.log('PDF generated with $totalPages pages');
+
+      // Get app documents directory
+      final directory = await getApplicationDocumentsDirectory();
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final fileName = 'labels_$timestamp.pdf';
+      final filePath = '${directory.path}/$fileName';
       
-      // Add barcodes with product info
-      for (int i = 0; i < _barcodes.length; i++) {
-        final barcode = _barcodes[i];
-        final product = barcodeToProduct[barcode];
-        
-        sheetObject.cell(excel_lib.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: i + 1)).value = excel_lib.TextCellValue(barcode);
-        sheetObject.cell(excel_lib.CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: i + 1)).value = excel_lib.TextCellValue(product?.name ?? '');
-        sheetObject.cell(excel_lib.CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: i + 1)).value = excel_lib.TextCellValue(product?.coverPrice ?? '');
-        sheetObject.cell(excel_lib.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: i + 1)).value = excel_lib.TextCellValue(product?.salePrice ?? '');
+      final file = File(filePath);
+      await file.writeAsBytes(await pdf.save());
+
+      AppLogger.log('PDF saved to: $filePath');
+
+      // Share the PDF
+      final result = await Share.shareXFiles(
+        [XFile(filePath)],
+        subject: 'لیبل قیمت محصولات',
+        text: 'لیبل قیمت ${items.length} محصول',
+      );
+
+      if (result.status == ShareResultStatus.success) {
+        AppLogger.log('PDF shared successfully');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('فایل PDF با موفقیت به اشتراک گذاشته شد')),
+        );
       }
-      AppLogger.log('Excel created with product info for ${_barcodes.length} items');
-    } else {
-      // Add header
-      sheetObject.cell(excel_lib.CellIndex.indexByString('A1')).value = excel_lib.TextCellValue('Barcode');
-      
-      // Add barcodes in column A
-      for (int i = 0; i < _barcodes.length; i++) {
-        sheetObject.cell(excel_lib.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: i + 1)).value = excel_lib.TextCellValue(_barcodes[i]);
-      }
-      AppLogger.log('Excel created with ${_barcodes.length} barcodes');
-    }
 
-    // Get app documents directory (no permission needed)
-    final directory = await getApplicationDocumentsDirectory();
-    
-    // Generate filename with timestamp
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final fileName = withProductInfo ? 'products_$timestamp.xlsx' : 'barcodes_$timestamp.xlsx';
-    final filePath = '${directory.path}/$fileName';
-    
-    AppLogger.log('Saving file to: $filePath');
-    
-    // Save file
-    final file = File(filePath);
-    await file.writeAsBytes(excel.encode()!);
-    
-    AppLogger.log('File saved successfully. Size: ${await file.length()} bytes');
-
-    // Share the file
-    AppLogger.log('Opening share dialog');
-    final result = await Share.shareXFiles(
-      [XFile(filePath)],
-      subject: withProductInfo ? 'Products Export' : 'Barcodes Export',
-      text: withProductInfo 
-        ? 'Exported products from Barcode Scanner App' 
-        : 'Exported barcodes from Barcode Scanner App',
-    );
-
-    if (result.status == ShareResultStatus.success) {
-      AppLogger.log('File shared successfully');
+    } catch (e) {
+      AppLogger.log('Error generating PDF: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('File shared successfully')),
+        SnackBar(content: Text('خطا در تولید PDF: $e')),
       );
     }
+  }
+
+  pw.Widget _buildLabel(ScannedItem item) {
+    return pw.Container(
+      width: _labelConfig.labelWidthMm * PdfPageFormat.mm,
+      height: _labelConfig.labelHeightMm * PdfPageFormat.mm,
+      margin: pw.EdgeInsets.only(
+        right: _labelConfig.gapHorizontalMm * PdfPageFormat.mm,
+        bottom: _labelConfig.gapVerticalMm * PdfPageFormat.mm,
+      ),
+      decoration: pw.BoxDecoration(
+        border: pw.Border.all(color: PdfColors.grey300, width: 1),
+        borderRadius: pw.BorderRadius.circular(5),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          // Header with store name or title
+          pw.Container(
+            width: double.infinity,
+            padding: const pw.EdgeInsets.symmetric(vertical: 3),
+            decoration: pw.BoxDecoration(
+              color: PdfColors.blueGrey700,
+              borderRadius: const pw.BorderRadius.only(
+                topLeft: pw.Radius.circular(4),
+                topRight: pw.Radius.circular(4),
+              ),
+            ),
+            child: pw.Text(
+              'فروشگاه اینترنتی ebimarket.ir',
+              style: pw.TextStyle(
+                color: PdfColors.white,
+                fontSize: 8,
+                fontWeight: pw.FontWeight.bold,
+              ),
+              textAlign: pw.TextAlign.center,
+            ),
+          ),
+          
+          pw.SizedBox(height: 4),
+          
+          // Product name
+          pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(horizontal: 4),
+            child: pw.Text(
+              item.name,
+              style: const pw.TextStyle(
+                fontSize: 10,
+                fontWeight: pw.FontWeight.bold,
+              ),
+              maxLines: 2,
+              overflow: pw.TextOverflow.ellipsis,
+              textAlign: pw.TextAlign.right,
+            ),
+          ),
+          
+          pw.SizedBox(height: 3),
+          
+          // Prices row
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceEvenly,
+            children: [
+              // Cover Price
+              pw.Expanded(
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.center,
+                  children: [
+                    pw.Text(
+                      'قیمت رو جلد',
+                      style: pw.TextStyle(
+                        fontSize: 7,
+                        color: PdfColors.grey600,
+                      ),
+                    ),
+                    pw.Text(
+                      '${item.coverPrice} تومان',
+                      style: const pw.TextStyle(
+                        fontSize: 9,
+                        fontWeight: pw.FontWeight.normal,
+                        decoration: pw.TextDecoration.lineThrough,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              
+              // Sale Price (highlighted)
+              pw.Expanded(
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.center,
+                  children: [
+                    pw.Text(
+                      'قیمت فروش',
+                      style: pw.TextStyle(
+                        fontSize: 7,
+                        color: PdfColors.green700,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.Text(
+                      '${item.salePrice} تومان',
+                      style: pw.TextStyle(
+                        fontSize: 12,
+                        fontWeight: pw.FontWeight.bold,
+                        color: PdfColors.red700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          
+          pw.Spacer(),
+          
+          // Barcode at bottom
+          pw.Container(
+            width: double.infinity,
+            padding: const pw.EdgeInsets.symmetric(vertical: 3),
+            decoration: pw.BoxDecoration(
+              border: pw.Border(
+                top: pw.BorderSide(color: PdfColors.grey300, width: 1),
+              ),
+            ),
+            child: pw.Column(
+              children: [
+                pw.Text(
+                  item.barcode,
+                  style: pw.TextStyle(
+                    fontSize: 9,
+                    fontFamily: 'Courier',
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                  textAlign: pw.TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showLabelSettings() {
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('تنظیمات لیبل'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'چیدمان لیبل‌ها در هر صفحه A4',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                const SizedBox(height: 16),
+                
+                // Labels per row
+                Row(
+                  children: [
+                    const Text('تعداد ستون: '),
+                    Expanded(
+                      child: Slider(
+                        value: _labelConfig.labelsPerRow.toDouble(),
+                        min: 1,
+                        max: 5,
+                        divisions: 4,
+                        label: _labelConfig.labelsPerRow.toString(),
+                        onChanged: (value) {
+                          setDialogState(() {
+                            _labelConfig.labelsPerRow = value.toInt();
+                          });
+                        },
+                      ),
+                    ),
+                    Text('${_labelConfig.labelsPerRow}'),
+                  ],
+                ),
+                
+                // Labels per column
+                Row(
+                  children: [
+                    const Text('تعداد ردیف: '),
+                    Expanded(
+                      child: Slider(
+                        value: _labelConfig.labelsPerColumn.toDouble(),
+                        min: 1,
+                        max: 7,
+                        divisions: 6,
+                        label: _labelConfig.labelsPerColumn.toString(),
+                        onChanged: (value) {
+                          setDialogState(() {
+                            _labelConfig.labelsPerColumn = value.toInt();
+                          });
+                        },
+                      ),
+                    ),
+                    Text('${_labelConfig.labelsPerColumn}'),
+                  ],
+                ),
+                
+                const Divider(),
+                Text(
+                  'مجموع لیبل در هر صفحه: ${_labelConfig.labelsPerPage}',
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue),
+                ),
+                
+                const SizedBox(height: 16),
+                const Text(
+                  'اندازه لیبل (میلی‌متر)',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                const SizedBox(height: 16),
+                
+                // Label width
+                Row(
+                  children: [
+                    const Text('عرض: ', style: TextStyle(fontSize: 12)),
+                    Expanded(
+                      child: Slider(
+                        value: _labelConfig.labelWidthMm,
+                        min: 40,
+                        max: 100,
+                        divisions: 12,
+                        label: '${_labelConfig.labelWidthMm.toInt()} mm',
+                        onChanged: (value) {
+                          setDialogState(() {
+                            _labelConfig.labelWidthMm = value;
+                          });
+                        },
+                      ),
+                    ),
+                    Text('${_labelConfig.labelWidthMm.toInt()} mm', style: const TextStyle(fontSize: 12)),
+                  ],
+                ),
+                
+                // Label height
+                Row(
+                  children: [
+                    const Text('ارتفاع: ', style: TextStyle(fontSize: 12)),
+                    Expanded(
+                      child: Slider(
+                        value: _labelConfig.labelHeightMm,
+                        min: 25,
+                        max: 60,
+                        divisions: 7,
+                        label: '${_labelConfig.labelHeightMm.toInt()} mm',
+                        onChanged: (value) {
+                          setDialogState(() {
+                            _labelConfig.labelHeightMm = value;
+                          });
+                        },
+                      ),
+                    ),
+                    Text('${_labelConfig.labelHeightMm.toInt()} mm', style: const TextStyle(fontSize: 12)),
+                  ],
+                ),
+                
+                const SizedBox(height: 16),
+                const Text(
+                  'حاشیه‌ها و فاصله‌ها (میلی‌متر)',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                const SizedBox(height: 8),
+                
+                // Margins
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _buildMarginField(setDialogState, 'بالا', () => _labelConfig.marginTopMm, (v) => _labelConfig.marginTopMm = v),
+                    _buildMarginField(setDialogState, 'پایین', () => _labelConfig.marginBottomMm, (v) => _labelConfig.marginBottomMm = v),
+                    _buildMarginField(setDialogState, 'چپ', () => _labelConfig.marginLeftMm, (v) => _labelConfig.marginLeftMm = v),
+                    _buildMarginField(setDialogState, 'راست', () => _labelConfig.marginRightMm, (v) => _labelConfig.marginRightMm = v),
+                    _buildMarginField(setDialogState, 'فاصله افقی', () => _labelConfig.gapHorizontalMm, (v) => _labelConfig.gapHorizontalMm = v),
+                    _buildMarginField(setDialogState, 'فاصله عمودی', () => _labelConfig.gapVerticalMm, (v) => _labelConfig.gapVerticalMm = v),
+                  ],
+                ),
+                
+                const SizedBox(height: 16),
+                SwitchListTile(
+                  title: const Text('فقط محصولات یکتا'),
+                  subtitle: const Text('حذف بارکدهای تکراری'),
+                  value: _showUniqueOnly,
+                  onChanged: (value) {
+                    setDialogState(() {
+                      _showUniqueOnly = value;
+                    });
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                setDialogState(() {
+                  _labelConfig = LabelConfig();
+                });
+              },
+              child: const Text('بازنشانی'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('انصراف'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                setState(() {});
+                Navigator.pop(context);
+              },
+              child: const Text('ذخیره'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMarginField(
+    StateSetter setDialogState,
+    String label,
+    double Function() getValue,
+    void Function(double) setValue,
+  ) {
+    return SizedBox(
+      width: 100,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 11)),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  keyboardType: TextInputType.number,
+                  controller: TextEditingController(text: getValue().toInt().toString()),
+                  onChanged: (value) {
+                    final num = double.tryParse(value);
+                    if (num != null) {
+                      setValue(num);
+                      setDialogState(() {});
+                    }
+                  },
+                  style: const TextStyle(fontSize: 11),
+                  decoration: const InputDecoration(
+                    contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    isDense: true,
+                  ),
+                ),
+              ),
+              const Text(' mm', style: TextStyle(fontSize: 11)),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Barcode Scanner'),
+        title: const Text('بارکد اسکنر حرفه‌ای'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        elevation: 2,
         actions: [
+          // Label settings button
+          IconButton(
+            icon: const Icon(Icons.grid_on),
+            onPressed: _showLabelSettings,
+            tooltip: 'تنظیمات لیبل',
+          ),
           // Settings button
           IconButton(
             icon: const Icon(Icons.settings),
@@ -654,13 +1112,13 @@ class _HomePageState extends State<HomePage> {
               showDialog(
                 context: context,
                 builder: (context) => AlertDialog(
-                  title: const Text('Settings'),
+                  title: const Text('تنظیمات'),
                   content: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Storage Path:',
+                        'مسیر ذخیره‌سازی:',
                         style: TextStyle(fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 8),
@@ -670,13 +1128,13 @@ class _HomePageState extends State<HomePage> {
                       ),
                       const SizedBox(height: 16),
                       const Text(
-                        'Files are saved in the app\'s documents directory.',
+                        'فایل‌ها در پوشه اسناد برنامه ذخیره می‌شوند.',
                         style: TextStyle(fontSize: 12),
                       ),
                       if (_lastSyncTime != null) ...[
                         const SizedBox(height: 16),
                         const Text(
-                          'Last Sync:',
+                          'آخرین همگام‌سازی:',
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 8),
@@ -687,12 +1145,12 @@ class _HomePageState extends State<HomePage> {
                       ],
                       const SizedBox(height: 16),
                       const Text(
-                        'Local Products:',
+                        'محصولات محلی:',
                         style: TextStyle(fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        '${_localProducts.length} products in database',
+                        '${_localProducts.length} محصول در پایگاه داده',
                         style: const TextStyle(fontSize: 12, color: Colors.blue),
                       ),
                     ],
@@ -700,13 +1158,13 @@ class _HomePageState extends State<HomePage> {
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.pop(context),
-                      child: const Text('Close'),
+                      child: const Text('بستن'),
                     ),
                   ],
                 ),
               );
             },
-            tooltip: 'Settings',
+            tooltip: 'تنظیمات',
           ),
           // Logs button
           IconButton(
@@ -715,12 +1173,12 @@ class _HomePageState extends State<HomePage> {
               showDialog(
                 context: context,
                 builder: (context) => AlertDialog(
-                  title: const Text('App Logs'),
+                  title: const Text('لاگ‌های برنامه'),
                   content: SizedBox(
                     width: double.maxFinite,
                     height: 400,
                     child: AppLogger.getLogs().isEmpty
-                        ? const Center(child: Text('No logs yet'))
+                        ? const Center(child: Text('هنوز لاگی ثبت نشده'))
                         : ListView.builder(
                             itemCount: AppLogger.getLogs().length,
                             itemBuilder: (context, index) {
@@ -741,41 +1199,59 @@ class _HomePageState extends State<HomePage> {
                         AppLogger.clear();
                         Navigator.pop(context);
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Logs cleared')),
+                          const SnackBar(content: Text('لاگ‌ها پاک شدند')),
                         );
                       },
                       icon: const Icon(Icons.delete_sweep, color: Colors.red),
-                      label: const Text('Clear Logs', style: TextStyle(color: Colors.red)),
+                      label: const Text('پاک کردن لاگ‌ها', style: TextStyle(color: Colors.red)),
                     ),
                     TextButton(
                       onPressed: () => Navigator.pop(context),
-                      child: const Text('Close'),
+                      child: const Text('بستن'),
                     ),
                   ],
                 ),
               );
             },
-            tooltip: 'View Logs',
+            tooltip: 'مشاهده لاگ‌ها',
           ),
         ],
       ),
       body: Column(
         children: [
-          // Barcode count display
+          // Barcode count display with gradient
           Container(
             padding: const EdgeInsets.all(16),
             width: double.infinity,
-            color: Colors.blue.shade50,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.blue.shade50, Colors.blue.shade100],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.blue.withOpacity(0.2),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  'Total Barcodes:',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                Text(
-                  '${_barcodes.length}',
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'تعداد بارکدهای اسکن شده:',
+                      style: TextStyle(fontSize: 14, color: Colors.grey),
+                    ),
+                    Text(
+                      '${_barcodes.length}',
+                      style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.blue),
+                    ),
+                  ],
                 ),
                 if (_barcodes.isNotEmpty)
                   ElevatedButton.icon(
@@ -783,7 +1259,7 @@ class _HomePageState extends State<HomePage> {
                       showDialog(
                         context: context,
                         builder: (context) => AlertDialog(
-                          title: const Text('Scanned Barcodes'),
+                          title: const Text('بارکدهای اسکن شده'),
                           content: SizedBox(
                             width: double.maxFinite,
                             height: 400,
@@ -792,10 +1268,14 @@ class _HomePageState extends State<HomePage> {
                               itemBuilder: (context, index) {
                                 return ListTile(
                                   leading: CircleAvatar(
-                                    child: Text('${index + 1}'),
+                                    backgroundColor: Colors.blue,
+                                    child: Text(
+                                      '${index + 1}',
+                                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                                    ),
                                   ),
                                   title: Text(_barcodes[index]),
-                                  subtitle: const Text('Tap to copy'),
+                                  subtitle: const Text('برای کپی ضربه بزنید'),
                                   trailing: IconButton(
                                     icon: const Icon(Icons.delete, color: Colors.red),
                                     onPressed: () {
@@ -805,7 +1285,7 @@ class _HomePageState extends State<HomePage> {
                                   ),
                                   onTap: () {
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text('Copied: ${_barcodes[index]}')),
+                                      SnackBar(content: Text('کپی شد: ${_barcodes[index]}')),
                                     );
                                     Navigator.pop(context);
                                   },
@@ -821,31 +1301,36 @@ class _HomePageState extends State<HomePage> {
                                   Navigator.pop(context);
                                 },
                                 icon: const Icon(Icons.delete_forever, color: Colors.red),
-                                label: const Text('Delete All', style: TextStyle(color: Colors.red)),
+                                label: const Text('حذف همه', style: TextStyle(color: Colors.red)),
                               ),
                             if (_barcodes.isNotEmpty)
                               ElevatedButton.icon(
                                 onPressed: () {
                                   Navigator.pop(context);
-                                  _exportToExcel(withProductInfo: true);
+                                  _exportToPdf();
                                 },
-                                icon: const Icon(Icons.cloud_upload),
-                                label: const Text('Export with Product Info'),
+                                icon: const Icon(Icons.picture_as_pdf),
+                                label: const Text('خروجی PDF'),
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.blue,
+                                  backgroundColor: Colors.red,
                                   foregroundColor: Colors.white,
                                 ),
                               ),
                             TextButton(
                               onPressed: () => Navigator.pop(context),
-                              child: const Text('Close'),
+                              child: const Text('بستن'),
                             ),
                           ],
                         ),
                       );
                     },
-                    icon: const Icon(Icons.list),
-                    label: const Text('View List'),
+                    icon: const Icon(Icons.list_alt),
+                    label: const Text('مشاهده لیست'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
                   ),
               ],
             ),
@@ -857,28 +1342,46 @@ class _HomePageState extends State<HomePage> {
             child: Container(
               margin: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey),
-                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.blue.shade300, width: 2),
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.blue.withOpacity(0.3),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: MobileScanner(
-                  onDetect: (capture) {
-                    final List<Barcode> barcodes = capture.barcodes;
-                    for (final barcode in barcodes) {
-                      if (barcode.rawValue != null && !_barcodes.contains(barcode.rawValue)) {
-                        _addBarcode(barcode.rawValue!);
-                        AppLogger.log('Barcode scanned: ${barcode.rawValue}');
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Scanned: ${barcode.rawValue}'),
-                            duration: const Duration(seconds: 1),
-                          ),
-                        );
-                        break;
-                      }
-                    }
-                  },
+                borderRadius: BorderRadius.circular(14),
+                child: Stack(
+                  children: [
+                    MobileScanner(
+                      onDetect: (capture) {
+                        final List<Barcode> barcodes = capture.barcodes;
+                        for (final barcode in barcodes) {
+                          if (barcode.rawValue != null && !_barcodes.contains(barcode.rawValue)) {
+                            _addBarcode(barcode.rawValue!);
+                            AppLogger.log('Barcode scanned: ${barcode.rawValue}');
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('اسکن شد: ${barcode.rawValue}'),
+                                duration: const Duration(seconds: 1),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                            break;
+                          }
+                        }
+                      },
+                    ),
+                    // Scan overlay
+                    Positioned.fill(
+                      child: CustomPaint(
+                        painter: ScanOverlayPainter(),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -889,48 +1392,84 @@ class _HomePageState extends State<HomePage> {
             flex: 2,
             child: Container(
               padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 10,
+                    offset: const Offset(0, -2),
+                  ),
+                ],
+              ),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   // Info text
-                  const Text(
-                    'Camera is always scanning',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: Colors.green),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.green.shade200),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.qr_code_scanner, color: Colors.green.shade700, size: 20),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'دوربین همیشه در حال اسکن است',
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.green),
+                        ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    'Point camera at barcodes to scan',
-                    style: TextStyle(fontSize: 14, color: Colors.grey),
+                    'دوربین را روی بارکد بگیرید',
+                    style: TextStyle(fontSize: 13, color: Colors.grey),
                   ),
                   const SizedBox(height: 20),
                   
-                  // Register/Save button
+                  // Export to PDF button (primary action)
                   ElevatedButton.icon(
                     onPressed: _barcodes.isEmpty 
                       ? null 
                       : () {
-                          AppLogger.log('${_barcodes.length} barcodes registered');
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('${_barcodes.length} barcodes registered')),
-                          );
+                          _fetchProductInfo();
+                          Future.delayed(const Duration(milliseconds: 500), () {
+                            _exportToPdf();
+                          });
                         },
-                    icon: const Icon(Icons.save),
-                    label: Text('Register (${_barcodes.length})'),
+                    icon: const Icon(Icons.picture_as_pdf, size: 24),
+                    label: const Text('تولید و چاپ لیبل قیمت (PDF)'),
                     style: ElevatedButton.styleFrom(
-                      minimumSize: const Size(double.infinity, 50),
+                      minimumSize: const Size(double.infinity, 56),
+                      backgroundColor: Colors.red,
+                      foregroundColor: Colors.white,
+                      elevation: 4,
+                      shadowColor: Colors.red.withOpacity(0.4),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 12),
                   
-                  // Export button
-                  ElevatedButton.icon(
-                    onPressed: _barcodes.isEmpty ? null : _exportToExcel,
-                    icon: const Icon(Icons.file_download),
-                    label: const Text('Export to Excel & Share'),
-                    style: ElevatedButton.styleFrom(
-                      minimumSize: const Size(double.infinity, 50),
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
+                  // Clear button
+                  OutlinedButton.icon(
+                    onPressed: _barcodes.isEmpty ? null : _clearBarcodes,
+                    icon: const Icon(Icons.delete_outline),
+                    label: const Text('پاک کردن بارکدها'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 48),
+                      foregroundColor: Colors.red,
+                      side: const BorderSide(color: Colors.red),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                 ],
@@ -945,24 +1484,35 @@ class _HomePageState extends State<HomePage> {
           children: [
             DrawerHeader(
               decoration: BoxDecoration(
-                color: Colors.blue,
+                gradient: LinearGradient(
+                  colors: [Colors.blue.shade700, Colors.blue.shade900],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
+                  const Icon(
+                    Icons.inventory_2,
+                    color: Colors.white,
+                    size: 48,
+                  ),
+                  const SizedBox(height: 12),
                   const Text(
                     'تنظیمات محصولات',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 24,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '${_localProducts.length} محصول در دیتابیس',
+                    '${_localProducts.length} محصول در پایگاه داده',
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.8),
+                      color: Colors.white.withOpacity(0.9),
                       fontSize: 14,
                     ),
                   ),
@@ -979,7 +1529,7 @@ class _HomePageState extends State<HomePage> {
             ),
             ListTile(
               leading: const Icon(Icons.sync, color: Colors.blue),
-              title: const Text('بروزرسانی دیتابیس'),
+              title: const Text('بروزرسانی پایگاه داده'),
               subtitle: Text(_isSyncing ? 'در حال پردازش...' : 'همگام‌سازی با سایت'),
               onTap: _isSyncing ? null : _syncProductsFromWooCommerce,
             ),
@@ -990,6 +1540,16 @@ class _HomePageState extends State<HomePage> {
               onTap: () {
                 Navigator.pop(context);
                 _showProductsList();
+              },
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.grid_on, color: Colors.orange),
+              title: const Text('تنظیمات لیبل'),
+              subtitle: const Text('چیدمان و اندازه لیبل‌ها'),
+              onTap: () {
+                Navigator.pop(context);
+                _showLabelSettings();
               },
             ),
           ],
@@ -1006,6 +1566,94 @@ class _HomePageState extends State<HomePage> {
       ),
     );
   }
+}
+
+// Custom painter for scan overlay
+class ScanOverlayPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white.withOpacity(0.3)
+      ..style = PaintingStyle.fill;
+
+    final centerRect = Rect.fromCenter(
+      center: Offset(size.width / 2, size.height / 2),
+      width: size.width * 0.7,
+      height: size.height * 0.4,
+    );
+
+    // Draw semi-transparent overlay
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), paint);
+    
+    // Clear center rectangle
+    canvas.drawPath(
+      Path.combine(
+        PathOperation.difference,
+        Path()..addRect(Rect.fromLTWH(0, 0, size.width, size.height)),
+        Path()..addRRect(RRect.fromRectAndRadius(centerRect, const Radius.circular(12))),
+      ),
+      Paint()..blendMode = BlendMode.clear,
+    );
+
+    // Draw corner markers
+    final markerPaint = Paint()
+      ..color = Colors.blue
+      ..strokeWidth = 4
+      ..style = PaintingStyle.stroke;
+
+    const markerLength = 30.0;
+    
+    // Top-left
+    canvas.drawLine(
+      Offset(centerRect.left, centerRect.top + markerLength),
+      Offset(centerRect.left, centerRect.top),
+      markerPaint,
+    );
+    canvas.drawLine(
+      Offset(centerRect.left, centerRect.top),
+      Offset(centerRect.left + markerLength, centerRect.top),
+      markerPaint,
+    );
+
+    // Top-right
+    canvas.drawLine(
+      Offset(centerRect.right - markerLength, centerRect.top),
+      Offset(centerRect.right, centerRect.top),
+      markerPaint,
+    );
+    canvas.drawLine(
+      Offset(centerRect.right, centerRect.top),
+      Offset(centerRect.right, centerRect.top + markerLength),
+      markerPaint,
+    );
+
+    // Bottom-left
+    canvas.drawLine(
+      Offset(centerRect.left, centerRect.bottom - markerLength),
+      Offset(centerRect.left, centerRect.bottom),
+      markerPaint,
+    );
+    canvas.drawLine(
+      Offset(centerRect.left, centerRect.bottom),
+      Offset(centerRect.left + markerLength, centerRect.bottom),
+      markerPaint,
+    );
+
+    // Bottom-right
+    canvas.drawLine(
+      Offset(centerRect.right - markerLength, centerRect.bottom),
+      Offset(centerRect.right, centerRect.bottom),
+      markerPaint,
+    );
+    canvas.drawLine(
+      Offset(centerRect.right, centerRect.bottom - markerLength),
+      Offset(centerRect.right, centerRect.bottom),
+      markerPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class ProductsListPage extends StatefulWidget {
@@ -1168,4 +1816,16 @@ class _ProductsListPageState extends State<ProductsListPage> {
       ),
     );
   }
+}
+
+class ProductInfo {
+  final String name;
+  final String coverPrice;
+  final String salePrice;
+
+  ProductInfo({
+    required this.name,
+    required this.coverPrice,
+    required this.salePrice,
+  });
 }

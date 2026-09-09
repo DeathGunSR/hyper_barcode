@@ -893,75 +893,87 @@ class _HomePageState extends State<HomePage> {
           pw.Spacer(),
           
           // Prices row with clear distinction
-          pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.spaceEvenly,
-            children: [
-              // Cover Price (crossed out)
-              pw.Expanded(
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.center,
-                  children: [
-                    pw.Text(
-                      'قیمت رو جلد',
-                      style: pw.TextStyle(
-                        font: font,
-                        fontSize: 8,
-                        color: PdfColors.grey700,
+          Builder(
+            builder: (context) {
+              // بررسی وجود قیمت فروش فوق‌العاده
+              final bool hasDiscount = item.salePrice != null && 
+                                       item.salePrice!.isNotEmpty && 
+                                       item.salePrice != '0' &&
+                                       item.salePrice != item.price;
+              
+              return pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceEvenly,
+                children: [
+                  if (hasDiscount) ...[
+                    // Cover Price (crossed out) - only show if there's a discount
+                    pw.Expanded(
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.center,
+                        children: [
+                          pw.Text(
+                            'قیمت رو جلد',
+                            style: pw.TextStyle(
+                              font: font,
+                              fontSize: 8,
+                              color: PdfColors.grey700,
+                            ),
+                            textDirection: pw.TextDirection.rtl,
+                          ),
+                          pw.SizedBox(height: 2),
+                          pw.Text(
+                            '${item.coverPrice} تومان',
+                            style: pw.TextStyle(
+                              font: font,
+                              fontSize: 10,
+                              fontWeight: pw.FontWeight.normal,
+                              decoration: pw.TextDecoration.lineThrough,
+                              color: PdfColors.grey600,
+                            ),
+                            textDirection: pw.TextDirection.rtl,
+                          ),
+                        ],
                       ),
-                      textDirection: pw.TextDirection.rtl,
                     ),
-                    pw.SizedBox(height: 2),
-                    pw.Text(
-                      '${item.coverPrice} تومان',
-                      style: pw.TextStyle(
-                        font: font,
-                        fontSize: 10,
-                        fontWeight: pw.FontWeight.normal,
-                        decoration: pw.TextDecoration.lineThrough,
-                        color: PdfColors.grey600,
-                      ),
-                      textDirection: pw.TextDirection.rtl,
+                    
+                    pw.Container(
+                      width: 1,
+                      height: 30,
+                      color: PdfColors.grey400,
                     ),
                   ],
-                ),
-              ),
-              
-              pw.Container(
-                width: 1,
-                height: 30,
-                color: PdfColors.grey400,
-              ),
-              
-              // Sale Price (highlighted)
-              pw.Expanded(
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.center,
-                  children: [
-                    pw.Text(
-                      'قیمت فروش',
-                      style: pw.TextStyle(
-                        font: font,
-                        fontSize: 9,
-                        color: PdfColors.black,
-                        fontWeight: pw.FontWeight.bold,
-                      ),
-                      textDirection: pw.TextDirection.rtl,
+                  
+                  // Sale Price or Regular Price (highlighted)
+                  pw.Expanded(
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.center,
+                      children: [
+                        pw.Text(
+                          hasDiscount ? 'قیمت فروش' : 'قیمت',
+                          style: pw.TextStyle(
+                            font: font,
+                            fontSize: 9,
+                            color: PdfColors.black,
+                            fontWeight: pw.FontWeight.bold,
+                          ),
+                          textDirection: pw.TextDirection.rtl,
+                        ),
+                        pw.SizedBox(height: 2),
+                        pw.Text(
+                          '${hasDiscount ? item.salePrice : item.price} تومان',
+                          style: pw.TextStyle(
+                            font: font,
+                            fontSize: hasDiscount ? 14 : 16,
+                            fontWeight: pw.FontWeight.bold,
+                            color: PdfColors.black,
+                          ),
+                          textDirection: pw.TextDirection.rtl,
+                        ),
+                      ],
                     ),
-                    pw.SizedBox(height: 2),
-                    pw.Text(
-                      '${item.salePrice} تومان',
-                      style: pw.TextStyle(
-                        font: font,
-                        fontSize: 14,
-                        fontWeight: pw.FontWeight.bold,
-                        color: PdfColors.black,
-                      ),
-                      textDirection: pw.TextDirection.rtl,
-                    ),
-                  ],
-                ),
-              ),
-            ],
+                  ),
+                ],
+              );
+            },
           ),
           
           pw.SizedBox(height: 3),

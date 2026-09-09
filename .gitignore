@@ -1,23 +1,26 @@
 ```
-# Dependencies
-.dart_tool/
-.packages
-.pub-cache/
-pubspec.lock
-
-# Build outputs
+# Build artifacts
+*.dart.js
+*.js
 build/
 dist/
+out/
 
-# Logs
+# Dependencies
+.pub-cache/
+.dart_tool/
+.packages
+
+# Logs and temp files
 *.log
+*.tmp
 
-# Environment variables
+# Environment
 .env
 .env.local
 *.env.*
 
-# IDE files
+# Editors
 .vscode/
 .idea/
 *.swp
@@ -26,33 +29,4 @@ dist/
 # OS generated files
 .DS_Store
 Thumbs.db
-
-# Coverage
-coverage/
-htmlcov/
-.coverage
-
-# Compressed files
-*.zip
-*.gz
-*.tar
-*.tgz
-*.bz2
-*.xz
-*.7z
-*.rar
-*.zst
-*.lz4
-*.lzh
-*.cab
-*.arj
-*.rpm
-*.deb
-*.Z
-*.lz
-*.lzo
-*.tar.gz
-*.tar.bz2
-*.tar.xz
-*.tar.zst
 ```

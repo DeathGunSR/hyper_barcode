@@ -893,13 +893,12 @@ class _HomePageState extends State<HomePage> {
           pw.Spacer(),
           
           // Prices row with clear distinction
-          Builder(
-            builder: (context) {
+          pw.Builder(
+            builder: (pw.Context context) {
               // بررسی وجود قیمت فروش فوق‌العاده
-              final bool hasDiscount = item.salePrice != null && 
-                                       item.salePrice!.isNotEmpty && 
+              final bool hasDiscount = item.salePrice.isNotEmpty && 
                                        item.salePrice != '0' &&
-                                       item.salePrice != item.price;
+                                       item.salePrice != item.coverPrice;
               
               return pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceEvenly,
@@ -959,7 +958,7 @@ class _HomePageState extends State<HomePage> {
                         ),
                         pw.SizedBox(height: 2),
                         pw.Text(
-                          '${hasDiscount ? item.salePrice : item.price} تومان',
+                          '${hasDiscount ? item.salePrice : item.coverPrice} تومان',
                           style: pw.TextStyle(
                             font: font,
                             fontSize: hasDiscount ? 14 : 16,

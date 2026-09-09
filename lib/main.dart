@@ -841,7 +841,6 @@ class _HomePageState extends State<HomePage> {
       ),
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
-        textDirection: pw.TextDirection.rtl,
         children: [
           // Header with store name or title
           pw.Container(
@@ -890,7 +889,6 @@ class _HomePageState extends State<HomePage> {
           // Prices row
           pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceEvenly,
-            textDirection: pw.TextDirection.rtl,
             children: [
               // Cover Price
               pw.Expanded(

@@ -25,6 +25,11 @@ Future<void> _loadPersianFont() async {
   }
 }
 
+// Helper function to shape Persian text (not needed with textDirection)
+// String _shapeText(String text) {
+//   return Intl.letters(text, locale: 'fa_IR');
+// }
+
 // Logger class for debugging
 class AppLogger {
   static final List<String> _logs = [];
@@ -836,6 +841,7 @@ class _HomePageState extends State<HomePage> {
       ),
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
+        textDirection: pw.TextDirection.rtl,
         children: [
           // Header with store name or title
           pw.Container(
@@ -857,6 +863,7 @@ class _HomePageState extends State<HomePage> {
                 fontWeight: pw.FontWeight.bold,
               ),
               textAlign: pw.TextAlign.center,
+              textDirection: pw.TextDirection.rtl,
             ),
           ),
           
@@ -874,6 +881,7 @@ class _HomePageState extends State<HomePage> {
               ),
               maxLines: 2,
               textAlign: pw.TextAlign.right,
+              textDirection: pw.TextDirection.rtl,
             ),
           ),
           
@@ -882,6 +890,7 @@ class _HomePageState extends State<HomePage> {
           // Prices row
           pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceEvenly,
+            textDirection: pw.TextDirection.rtl,
             children: [
               // Cover Price
               pw.Expanded(
@@ -895,6 +904,7 @@ class _HomePageState extends State<HomePage> {
                         fontSize: 7,
                         color: PdfColors.grey600,
                       ),
+                      textDirection: pw.TextDirection.rtl,
                     ),
                     pw.Text(
                       '${item.coverPrice} تومان',
@@ -904,6 +914,7 @@ class _HomePageState extends State<HomePage> {
                         fontWeight: pw.FontWeight.normal,
                         decoration: pw.TextDecoration.lineThrough,
                       ),
+                      textDirection: pw.TextDirection.rtl,
                     ),
                   ],
                 ),
@@ -922,6 +933,7 @@ class _HomePageState extends State<HomePage> {
                         color: PdfColors.green700,
                         fontWeight: pw.FontWeight.bold,
                       ),
+                      textDirection: pw.TextDirection.rtl,
                     ),
                     pw.Text(
                       '${item.salePrice} تومان',
@@ -931,6 +943,7 @@ class _HomePageState extends State<HomePage> {
                         fontWeight: pw.FontWeight.bold,
                         color: PdfColors.red700,
                       ),
+                      textDirection: pw.TextDirection.rtl,
                     ),
                   ],
                 ),
@@ -959,6 +972,7 @@ class _HomePageState extends State<HomePage> {
                     fontWeight: pw.FontWeight.bold,
                   ),
                   textAlign: pw.TextAlign.center,
+                  textDirection: pw.TextDirection.rtl,
                 ),
               ],
             ),

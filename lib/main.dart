@@ -21,7 +21,7 @@ pw.Font? _persianFont;
 Future<void> _loadPersianFont() async {
   if (_persianFont == null) {
     final ByteData fontData = await rootBundle.load('assets/fonts/Vazirmatn-Regular.ttf');
-    _persianFont = pw.Font.ttf(fontData.buffer.asUint8List(fontData.offsetInBytes, fontData.lengthInBytes));
+    _persianFont = pw.Font.ttf(fontData);
   }
 }
 

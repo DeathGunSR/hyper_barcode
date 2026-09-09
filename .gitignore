@@ -1,20 +1,11 @@
-# Dependencies
+```
+# Dart/Flutter build outputs
+.dart_tool/
+.build/
 .pub/
-.buildlog
-.packages
-
-# Generated code
-lib/generated/
-
-# Logs
-*.log
-**/logs
-
-# Environment
-.env
-.env.local
-.env.*
-!.env.example
+packages/
+*.g.dart
+*.freezed.dart
 
 # IDE
 .idea/
@@ -22,25 +13,19 @@ lib/generated/
 *.swp
 *.swo
 
-# OS
+# Environment
+.env
+.env.local
+*.env.*
+
+# Logs
+*.log
+
+# Dependencies
+node_modules/
+vendor/
+
+# OS generated files
 .DS_Store
 Thumbs.db
-ehthumbs.db
-Icon?
-.directory
-*.nib
-
-# Build
-build/
-.dart_tool/
-packages/
-
-# Testing
-coverage/
-test-reports/
-
-# Temporary
-*.tmp
-*.temp
-**/tmp/**
-**/temp/**
+```

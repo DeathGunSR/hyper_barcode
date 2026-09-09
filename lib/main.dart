@@ -836,61 +836,67 @@ class _HomePageState extends State<HomePage> {
         bottom: _labelConfig.gapVerticalMm * PdfPageFormat.mm,
       ),
       decoration: pw.BoxDecoration(
-        border: pw.Border.all(color: PdfColors.grey300, width: 1),
-        borderRadius: pw.BorderRadius.circular(5),
+        border: pw.Border.all(color: PdfColors.black, width: 1),
+        borderRadius: pw.BorderRadius.circular(3),
       ),
       child: pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        crossAxisAlignment: pw.CrossAxisAlignment.stretch,
         children: [
-          // Header with store name or title
+          // Barcode section with black background at top
           pw.Container(
             width: double.infinity,
-            padding: const pw.EdgeInsets.symmetric(vertical: 3),
-            decoration: pw.BoxDecoration(
-              color: PdfColors.blueGrey700,
-              borderRadius: const pw.BorderRadius.only(
-                topLeft: pw.Radius.circular(4),
-                topRight: pw.Radius.circular(4),
+            padding: const pw.EdgeInsets.symmetric(vertical: 6),
+            decoration: const pw.BoxDecoration(
+              color: PdfColors.black,
+              borderRadius: pw.BorderRadius.only(
+                topLeft: pw.Radius.circular(2),
+                topRight: pw.Radius.circular(2),
               ),
             ),
+            child: pw.Column(
+              mainAxisSize: pw.MainAxisSize.min,
+              children: [
+                pw.Text(
+                  item.barcode,
+                  style: pw.TextStyle(
+                    font: font,
+                    color: PdfColors.white,
+                    fontSize: 11,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                  textAlign: pw.TextAlign.center,
+                  textDirection: pw.TextDirection.rtl,
+                ),
+              ],
+            ),
+          ),
+          
+          pw.SizedBox(height: 5),
+          
+          // Product name - bold and clear
+          pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(horizontal: 5),
             child: pw.Text(
-              'فروشگاه اینترنتی ebimarket.ir',
+              item.name,
               style: pw.TextStyle(
                 font: font,
-                color: PdfColors.white,
-                fontSize: 8,
+                fontSize: 13,
                 fontWeight: pw.FontWeight.bold,
+                color: PdfColors.black,
               ),
+              maxLines: 2,
               textAlign: pw.TextAlign.center,
               textDirection: pw.TextDirection.rtl,
             ),
           ),
           
-          pw.SizedBox(height: 4),
+          pw.Spacer(),
           
-          // Product name
-          pw.Padding(
-            padding: const pw.EdgeInsets.symmetric(horizontal: 4),
-            child: pw.Text(
-              item.name,
-              style: pw.TextStyle(
-                font: font,
-                fontSize: 10,
-                fontWeight: pw.FontWeight.bold,
-              ),
-              maxLines: 2,
-              textAlign: pw.TextAlign.right,
-              textDirection: pw.TextDirection.rtl,
-            ),
-          ),
-          
-          pw.SizedBox(height: 3),
-          
-          // Prices row
+          // Prices row with clear distinction
           pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceEvenly,
             children: [
-              // Cover Price
+              // Cover Price (crossed out)
               pw.Expanded(
                 child: pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.center,
@@ -899,23 +905,31 @@ class _HomePageState extends State<HomePage> {
                       'قیمت رو جلد',
                       style: pw.TextStyle(
                         font: font,
-                        fontSize: 7,
-                        color: PdfColors.grey600,
+                        fontSize: 8,
+                        color: PdfColors.grey700,
                       ),
                       textDirection: pw.TextDirection.rtl,
                     ),
+                    pw.SizedBox(height: 2),
                     pw.Text(
                       '${item.coverPrice} تومان',
                       style: pw.TextStyle(
                         font: font,
-                        fontSize: 9,
+                        fontSize: 10,
                         fontWeight: pw.FontWeight.normal,
                         decoration: pw.TextDecoration.lineThrough,
+                        color: PdfColors.grey600,
                       ),
                       textDirection: pw.TextDirection.rtl,
                     ),
                   ],
                 ),
+              ),
+              
+              pw.Container(
+                width: 1,
+                height: 30,
+                color: PdfColors.grey400,
               ),
               
               // Sale Price (highlighted)
@@ -927,19 +941,20 @@ class _HomePageState extends State<HomePage> {
                       'قیمت فروش',
                       style: pw.TextStyle(
                         font: font,
-                        fontSize: 7,
-                        color: PdfColors.green700,
+                        fontSize: 9,
+                        color: PdfColors.black,
                         fontWeight: pw.FontWeight.bold,
                       ),
                       textDirection: pw.TextDirection.rtl,
                     ),
+                    pw.SizedBox(height: 2),
                     pw.Text(
                       '${item.salePrice} تومان',
                       style: pw.TextStyle(
                         font: font,
-                        fontSize: 12,
+                        fontSize: 14,
                         fontWeight: pw.FontWeight.bold,
-                        color: PdfColors.red700,
+                        color: PdfColors.black,
                       ),
                       textDirection: pw.TextDirection.rtl,
                     ),
@@ -949,32 +964,7 @@ class _HomePageState extends State<HomePage> {
             ],
           ),
           
-          pw.Spacer(),
-          
-          // Barcode at bottom
-          pw.Container(
-            width: double.infinity,
-            padding: const pw.EdgeInsets.symmetric(vertical: 3),
-            decoration: pw.BoxDecoration(
-              border: pw.Border(
-                top: pw.BorderSide(color: PdfColors.grey300, width: 1),
-              ),
-            ),
-            child: pw.Column(
-              children: [
-                pw.Text(
-                  item.barcode,
-                  style: pw.TextStyle(
-                    font: font,
-                    fontSize: 9,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
-                  textAlign: pw.TextAlign.center,
-                  textDirection: pw.TextDirection.rtl,
-                ),
-              ],
-            ),
-          ),
+          pw.SizedBox(height: 3),
         ],
       ),
     );

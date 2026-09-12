@@ -15,7 +15,7 @@ out/
 *.log
 *.tmp
 
-# Environment variables
+# Environment
 .env
 .env.local
 *.env.*

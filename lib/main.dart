@@ -15,6 +15,21 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
+// Global font for Persian support in PDF
+pw.Font? _persianFont;
+
+Future<void> _loadPersianFont() async {
+  if (_persianFont == null) {
+    final ByteData fontData = await rootBundle.load('assets/fonts/Vazirmatn-Regular.ttf');
+    _persianFont = pw.Font.ttf(fontData);
+  }
+}
+
+// Helper function to shape Persian text (not needed with textDirection)
+// String _shapeText(String text) {
+//   return Intl.letters(text, locale: 'fa_IR');
+// }
+
 // Logger class for debugging
 class AppLogger {
   static final List<String> _logs = [];
@@ -733,6 +748,9 @@ class _HomePageState extends State<HomePage> {
     AppLogger.log('Generating PDF with ${items.length} items');
 
     try {
+      // Load Persian font before generating PDF
+      await _loadPersianFont();
+      
       final pdf = pw.Document();
 
       // Calculate how many pages we need
@@ -808,6 +826,8 @@ class _HomePageState extends State<HomePage> {
   }
 
   pw.Widget _buildLabel(ScannedItem item) {
+    final pw.Font? font = _persianFont;
+    
     return pw.Container(
       width: _labelConfig.labelWidthMm * PdfPageFormat.mm,
       height: _labelConfig.labelHeightMm * PdfPageFormat.mm,
@@ -816,131 +836,146 @@ class _HomePageState extends State<HomePage> {
         bottom: _labelConfig.gapVerticalMm * PdfPageFormat.mm,
       ),
       decoration: pw.BoxDecoration(
-        border: pw.Border.all(color: PdfColors.grey300, width: 1),
-        borderRadius: pw.BorderRadius.circular(5),
+        border: pw.Border.all(color: PdfColors.black, width: 1),
+        borderRadius: pw.BorderRadius.circular(3),
       ),
       child: pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        crossAxisAlignment: pw.CrossAxisAlignment.stretch,
         children: [
-          // Header with store name or title
+          // Barcode section with black background at top
           pw.Container(
             width: double.infinity,
-            padding: const pw.EdgeInsets.symmetric(vertical: 3),
-            decoration: pw.BoxDecoration(
-              color: PdfColors.blueGrey700,
-              borderRadius: const pw.BorderRadius.only(
-                topLeft: pw.Radius.circular(4),
-                topRight: pw.Radius.circular(4),
-              ),
-            ),
-            child: pw.Text(
-              'فروشگاه اینترنتی ebimarket.ir',
-              style: pw.TextStyle(
-                color: PdfColors.white,
-                fontSize: 8,
-                fontWeight: pw.FontWeight.bold,
-              ),
-              textAlign: pw.TextAlign.center,
-            ),
-          ),
-          
-          pw.SizedBox(height: 4),
-          
-          // Product name
-          pw.Padding(
-            padding: const pw.EdgeInsets.symmetric(horizontal: 4),
-            child: pw.Text(
-              item.name,
-              style: const pw.TextStyle(
-                fontSize: 10,
-                fontWeight: pw.FontWeight.bold,
-              ),
-              maxLines: 2,
-              textAlign: pw.TextAlign.right,
-            ),
-          ),
-          
-          pw.SizedBox(height: 3),
-          
-          // Prices row
-          pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.spaceEvenly,
-            children: [
-              // Cover Price
-              pw.Expanded(
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.center,
-                  children: [
-                    pw.Text(
-                      'قیمت رو جلد',
-                      style: pw.TextStyle(
-                        fontSize: 7,
-                        color: PdfColors.grey600,
-                      ),
-                    ),
-                    pw.Text(
-                      '${item.coverPrice} تومان',
-                      style: const pw.TextStyle(
-                        fontSize: 9,
-                        fontWeight: pw.FontWeight.normal,
-                        decoration: pw.TextDecoration.lineThrough,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              
-              // Sale Price (highlighted)
-              pw.Expanded(
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.center,
-                  children: [
-                    pw.Text(
-                      'قیمت فروش',
-                      style: pw.TextStyle(
-                        fontSize: 7,
-                        color: PdfColors.green700,
-                        fontWeight: pw.FontWeight.bold,
-                      ),
-                    ),
-                    pw.Text(
-                      '${item.salePrice} تومان',
-                      style: pw.TextStyle(
-                        fontSize: 12,
-                        fontWeight: pw.FontWeight.bold,
-                        color: PdfColors.red700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          
-          pw.Spacer(),
-          
-          // Barcode at bottom
-          pw.Container(
-            width: double.infinity,
-            padding: const pw.EdgeInsets.symmetric(vertical: 3),
-            decoration: pw.BoxDecoration(
-              border: pw.Border(
-                top: pw.BorderSide(color: PdfColors.grey300, width: 1),
+            padding: const pw.EdgeInsets.symmetric(vertical: 6),
+            decoration: const pw.BoxDecoration(
+              color: PdfColors.black,
+              borderRadius: pw.BorderRadius.only(
+                topLeft: pw.Radius.circular(2),
+                topRight: pw.Radius.circular(2),
               ),
             ),
             child: pw.Column(
+              mainAxisSize: pw.MainAxisSize.min,
               children: [
                 pw.Text(
                   item.barcode,
-                  style: const pw.TextStyle(
-                    fontSize: 9,
+                  style: pw.TextStyle(
+                    font: font,
+                    color: PdfColors.white,
+                    fontSize: 11,
                     fontWeight: pw.FontWeight.bold,
                   ),
                   textAlign: pw.TextAlign.center,
+                  textDirection: pw.TextDirection.rtl,
                 ),
               ],
             ),
           ),
+          
+          pw.SizedBox(height: 5),
+          
+          // Product name - bold and clear
+          pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(horizontal: 5),
+            child: pw.Text(
+              item.name,
+              style: pw.TextStyle(
+                font: font,
+                fontSize: 13,
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColors.black,
+              ),
+              maxLines: 2,
+              textAlign: pw.TextAlign.center,
+              textDirection: pw.TextDirection.rtl,
+            ),
+          ),
+          
+          pw.Spacer(),
+          
+          // Prices row with clear distinction
+          pw.Builder(
+            builder: (pw.Context context) {
+              // بررسی وجود قیمت فروش فوق‌العاده
+              final bool hasDiscount = item.salePrice.isNotEmpty && 
+                                       item.salePrice != '0' &&
+                                       item.salePrice != item.coverPrice;
+              
+              return pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceEvenly,
+                children: [
+                  if (hasDiscount) ...[
+                    // Cover Price (crossed out) - only show if there's a discount
+                    pw.Expanded(
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.center,
+                        children: [
+                          pw.Text(
+                            'قیمت رو جلد',
+                            style: pw.TextStyle(
+                              font: font,
+                              fontSize: 8,
+                              color: PdfColors.grey700,
+                            ),
+                            textDirection: pw.TextDirection.rtl,
+                          ),
+                          pw.SizedBox(height: 2),
+                          pw.Text(
+                            '${item.coverPrice} تومان',
+                            style: pw.TextStyle(
+                              font: font,
+                              fontSize: 10,
+                              fontWeight: pw.FontWeight.normal,
+                              decoration: pw.TextDecoration.lineThrough,
+                              color: PdfColors.grey600,
+                            ),
+                            textDirection: pw.TextDirection.rtl,
+                          ),
+                        ],
+                      ),
+                    ),
+                    
+                    pw.Container(
+                      width: 1,
+                      height: 30,
+                      color: PdfColors.grey400,
+                    ),
+                  ],
+                  
+                  // Sale Price or Regular Price (highlighted)
+                  pw.Expanded(
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.center,
+                      children: [
+                        pw.Text(
+                          hasDiscount ? 'قیمت فروش' : 'قیمت',
+                          style: pw.TextStyle(
+                            font: font,
+                            fontSize: 9,
+                            color: PdfColors.black,
+                            fontWeight: pw.FontWeight.bold,
+                          ),
+                          textDirection: pw.TextDirection.rtl,
+                        ),
+                        pw.SizedBox(height: 2),
+                        pw.Text(
+                          '${hasDiscount ? item.salePrice : item.coverPrice} تومان',
+                          style: pw.TextStyle(
+                            font: font,
+                            fontSize: hasDiscount ? 14 : 16,
+                            fontWeight: pw.FontWeight.bold,
+                            color: PdfColors.black,
+                          ),
+                          textDirection: pw.TextDirection.rtl,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+          
+          pw.SizedBox(height: 3),
         ],
       ),
     );

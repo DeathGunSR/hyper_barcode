@@ -1,34 +1,36 @@
 ```
-# Build outputs
-/build/
-/bin/
-/obj/
-
 # Dependencies
-.pub/
+.dart_tool/
 .packages
+.pub/
+pubspec.lock
+
+# Build outputs
+build/
+*.g.dart
+
+# Environment variables
+.env
+.env.local
+*.env.*
 
 # Logs
 *.log
+**/logs
 
-    Input:
-    ### Added files:
-    [src/main.py, README.md, config.json]
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS
+# OS generated files
 .DS_Store
 Thumbs.db
 
+# IDE specific
+.idea/
+.vscode/
+*.swp
+*.swo
+
 # Coverage
 coverage/
-htmlcov/
-.coverage
+*.coverage
 
 # Temporary files
 *.tmp

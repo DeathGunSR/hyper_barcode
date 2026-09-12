@@ -13,6 +13,7 @@ import 'dart:typed_data';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 // Logger class for debugging
 class AppLogger {
@@ -186,7 +187,6 @@ class _BarcodeScannerAppState extends State<BarcodeScannerApp> {
       debugShowCheckedModeBanner: false,
       locale: Locale(_locale),
       localizationsDelegates: [
-        AppLocalizationsDelegate(_locale),
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,

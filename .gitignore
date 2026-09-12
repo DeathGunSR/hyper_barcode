@@ -15,7 +15,7 @@ out/
 *.log
 *.tmp
 
-# Environment
+# Environment variables
 .env
 .env.local
 *.env.*
@@ -23,6 +23,7 @@ out/
 # Editors
 .vscode/
 .idea/
+.vscode/
 *.swp
 *.swo
 

@@ -1,15 +1,28 @@
 ```
-# Flutter/Dart build artifacts
+# Flutter/Dart
 .dart_tool/
 .build/
-bin/cache/
+.flutter-plugins
+.flutter-plugin-dependencies
+.packages
+**/ios/.generated/
+**/macos/.generated/
+**/linux/.generated/
+**/windows/.generated/
+
+# Build artifacts
+build/
+*.apk
+*.aab
+*.app
+*.exe
+*.dll
+*.so
+*.dylib
 
 # Dependencies
 .pub-cache/
 pubspec.lock
-
-# Localization
-l10n/*.arb
 
 # Environment
 .env
@@ -18,12 +31,22 @@ l10n/*.arb
 
 # Logs
 *.log
+**/logs/
 
-# Temporary files
-*.tmp
-*.temp
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
 
-# OS generated files
+# OS
 .DS_Store
 Thumbs.db
+
+# Coverage
+coverage/
+*.lcov
+
+# Testing
+*.coverage
 ```

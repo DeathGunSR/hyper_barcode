@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../main.dart'; // برای دسترسی به BarcodeScannerWidget و SettingsDialog
+import '../../../main.dart';
 
 /// صفحه منوی اصلی برنامه Barcodify
 class MenuPage extends StatefulWidget {
@@ -44,7 +44,6 @@ class _MenuPageState extends State<MenuPage> {
         ),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
-          // دکمه تنظیمات سریع
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () => _showQuickSettings(context),
@@ -60,7 +59,6 @@ class _MenuPageState extends State<MenuPage> {
             children: [
               const SizedBox(height: 24),
               
-              // کارت خوش‌آمدگویی
               Card(
                 elevation: 4,
                 shadowColor: Colors.blue.withOpacity(0.3),
@@ -68,10 +66,7 @@ class _MenuPageState extends State<MenuPage> {
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
-                      colors: [
-                        Colors.blue.shade50,
-                        Colors.blue.shade100,
-                      ],
+                      colors: [Colors.blue.shade50, Colors.blue.shade100],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
@@ -106,11 +101,7 @@ class _MenuPageState extends State<MenuPage> {
                           ],
                         ),
                       ),
-                      Icon(
-                        Icons.qr_code_scanner,
-                        size: 48,
-                        color: Colors.blue.shade400,
-                      ),
+                      Icon(Icons.qr_code_scanner, size: 48, color: Colors.blue.shade400),
                     ],
                   ),
                 ),
@@ -118,15 +109,12 @@ class _MenuPageState extends State<MenuPage> {
               
               const SizedBox(height: 32),
               
-              // گزینه‌های منو
               Expanded(
                 child: ListView(
                   children: [
                     _buildMenuCard(
                       icon: Icons.qr_code_scanner,
-                      title: widget.currentLocale == 'fa' 
-                          ? 'بارکد خوان' 
-                          : 'Barcode Scanner',
+                      title: widget.currentLocale == 'fa' ? 'بارکد خوان' : 'Barcode Scanner',
                       subtitle: widget.currentLocale == 'fa'
                           ? 'اسکن بارکد و تولید لیبل قیمت'
                           : 'Scan barcodes and generate price labels',
@@ -147,15 +135,12 @@ class _MenuPageState extends State<MenuPage> {
                     
                     _buildMenuCard(
                       icon: Icons.shopping_cart,
-                      title: widget.currentLocale == 'fa' 
-                          ? 'چک‌لیست خرید مشترک' 
-                          : 'Shared Shopping List',
+                      title: widget.currentLocale == 'fa' ? 'چک‌لیست خرید مشترک' : 'Shared Shopping List',
                       subtitle: widget.currentLocale == 'fa'
                           ? 'مدیریت لیست خرید با همگام‌سازی آنلاین'
                           : 'Manage shopping lists with online sync',
                       color: Colors.orange,
                       onTap: () {
-                        // وارد کردن صفحه چک‌لیست خرید
                         _navigateToShoppingList(context);
                       },
                     ),
@@ -164,9 +149,7 @@ class _MenuPageState extends State<MenuPage> {
                     
                     _buildMenuCard(
                       icon: Icons.settings,
-                      title: widget.currentLocale == 'fa' 
-                          ? 'تنظیمات' 
-                          : 'Settings',
+                      title: widget.currentLocale == 'fa' ? 'تنظیمات' : 'Settings',
                       subtitle: widget.currentLocale == 'fa'
                           ? 'شخصی‌سازی ظاهر و رفتار برنامه'
                           : 'Customize app appearance and behavior',
@@ -179,16 +162,10 @@ class _MenuPageState extends State<MenuPage> {
                 ),
               ),
               
-              // فوتر
               Center(
                 child: Text(
-                  widget.currentLocale == 'fa'
-                      ? 'نسخه ۱.۰.۰'
-                      : 'Version 1.0.0',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade600,
-                  ),
+                  widget.currentLocale == 'fa' ? 'نسخه ۱.۰.۰' : 'Version 1.0.0',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
               ),
               const SizedBox(height: 16),
@@ -218,10 +195,7 @@ class _MenuPageState extends State<MenuPage> {
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [
-                color.withOpacity(0.1),
-                color.withOpacity(0.05),
-              ],
+              colors: [color.withOpacity(0.1), color.withOpacity(0.05)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -242,39 +216,20 @@ class _MenuPageState extends State<MenuPage> {
                     ),
                   ],
                 ),
-                child: Icon(
-                  icon,
-                  color: Colors.white,
-                  size: 28,
-                ),
+                child: Icon(icon, color: Colors.white, size: 28),
               ),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: isRTL ? CrossAxisAlignment.right : CrossAxisAlignment.left,
                   children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
+                    Text(subtitle, style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
                   ],
                 ),
               ),
-              Icon(
-                isRTL ? Icons.arrow_back : Icons.arrow_forward,
-                color: color,
-              ),
+              Icon(isRTL ? Icons.arrow_back : Icons.arrow_forward, color: color),
             ],
           ),
         ),
@@ -291,36 +246,17 @@ class _MenuPageState extends State<MenuPage> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // تغییر زبان
             ListTile(
               leading: const Icon(Icons.language),
               title: Text(widget.currentLocale == 'fa' ? 'زبان' : 'Language'),
-              trailing: Text(
-                widget.currentLocale == 'fa' ? 'فارسی' : 'English',
-              ),
+              trailing: Text(widget.currentLocale == 'fa' ? 'فارسی' : 'English'),
               onTap: () {
                 Navigator.pop(context);
-                final newLocale = widget.currentLocale == 'fa' ? 'en' : 'fa';
-                widget.onLocaleChanged(newLocale);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      widget.currentLocale == 'fa'
-                          ? 'زبان به انگلیسی تغییر کرد'
-                          : 'Language changed to Persian',
-                    ),
-                  ),
-                );
+                widget.onLocaleChanged(widget.currentLocale == 'fa' ? 'en' : 'fa');
               },
             ),
-            
-            // تغییر تم
             ListTile(
-              leading: Icon(
-                widget.themeMode == ThemeMode.dark 
-                  ? Icons.dark_mode 
-                  : Icons.light_mode,
-              ),
+              leading: Icon(widget.themeMode == ThemeMode.dark ? Icons.dark_mode : Icons.light_mode),
               title: Text(widget.currentLocale == 'fa' ? 'حالت تم' : 'Theme Mode'),
               trailing: Text(
                 widget.themeMode == ThemeMode.system
@@ -331,39 +267,25 @@ class _MenuPageState extends State<MenuPage> {
               ),
               onTap: () {
                 Navigator.pop(context);
-                _cycleThemeMode();
+                ThemeMode newMode;
+                switch (widget.themeMode) {
+                  case ThemeMode.system: newMode = ThemeMode.light; break;
+                  case ThemeMode.light: newMode = ThemeMode.dark; break;
+                  case ThemeMode.dark: newMode = ThemeMode.system; break;
+                }
+                widget.onThemeModeChanged(newMode);
               },
             ),
           ],
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(widget.currentLocale == 'fa' ? 'بستن' : 'Close'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(widget.currentLocale == 'fa' ? 'بستن' : 'Close')),
         ],
       ),
     );
   }
 
-  void _cycleThemeMode() {
-    ThemeMode newMode;
-    switch (widget.themeMode) {
-      case ThemeMode.system:
-        newMode = ThemeMode.light;
-        break;
-      case ThemeMode.light:
-        newMode = ThemeMode.dark;
-        break;
-      case ThemeMode.dark:
-        newMode = ThemeMode.system;
-        break;
-    }
-    widget.onThemeModeChanged(newMode);
-  }
-
   void _showFullSettings(BuildContext context) {
-    // نمایش دیالوگ کامل تنظیمات
     showDialog(
       context: context,
       builder: (context) => SettingsDialog(
@@ -376,16 +298,9 @@ class _MenuPageState extends State<MenuPage> {
   }
 
   void _navigateToShoppingList(BuildContext context) {
-    // اینجا باید صفحه چک‌لیست خرید را ایمپورت و نمایش دهیم
-    // فعلاً یک پیام نمایش می‌دهیم
+    // Navigation to shopping list will be implemented
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          widget.currentLocale == 'fa'
-              ? 'صفحه چک‌لیست خرید به زودی اضافه می‌شود'
-              : 'Shopping list page coming soon',
-        ),
-      ),
+      SnackBar(content: Text(widget.currentLocale == 'fa' ? 'به زودی' : 'Coming soon')),
     );
   }
 }

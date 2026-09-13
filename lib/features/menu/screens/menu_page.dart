@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../main.dart';
+import '../../shopping_list/screens/shopping_list_screen.dart';
 
 /// صفحه منوی اصلی برنامه Barcodify
 class MenuPage extends StatefulWidget {
@@ -123,8 +124,11 @@ class _MenuPageState extends State<MenuPage> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => BarcodeScannerWidget(
+                            builder: (context) => HomePage(
                               currentLocale: widget.currentLocale,
+                              onLocaleChanged: widget.onLocaleChanged,
+                              themeMode: widget.themeMode,
+                              onThemeModeChanged: widget.onThemeModeChanged,
                             ),
                           ),
                         );
@@ -141,7 +145,14 @@ class _MenuPageState extends State<MenuPage> {
                           : 'Manage shopping lists with online sync',
                       color: Colors.orange,
                       onTap: () {
-                        _navigateToShoppingList(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => ShoppingListScreen(
+                              currentLocale: widget.currentLocale,
+                            ),
+                          ),
+                        );
                       },
                     ),
                     

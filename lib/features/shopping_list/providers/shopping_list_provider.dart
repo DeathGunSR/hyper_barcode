@@ -102,8 +102,8 @@ class ShoppingListProvider extends ChangeNotifier {
       _items.insert(0, item.copyWith(id: itemId));
       _applyFilters();
       
-      // ارسال به سرور در پس‌زمینه
-      _syncItemToServer(item);
+      // ارسال به سرور در پس‌زمینه (بدون مسدود کردن UI)
+      _syncItemToServerAsync(item);
       
       notifyListeners();
       return true;
@@ -211,7 +211,8 @@ class ShoppingListProvider extends ChangeNotifier {
       
       // بروزرسانی آیتم‌های محلی با داده‌های سرور
       if (result.containsKey('server_items')) {
-        await _dbService.syncItemsFromServer(result['server_items']);
+        final serverItems = result['server_items'] as List<dynamic>;
+        await _dbService.syncItemsFromServer(serverItems);
         await loadItems();
       }
     } catch (e) {
@@ -252,5 +253,15 @@ class ShoppingListProvider extends ChangeNotifier {
   String getTagColor(String tagId) {
     final tag = DefaultTags.getById(tagId);
     return tag?.colorHex ?? '#BDBDBD';
+  }
+
+  /// همگام‌سازی آیتم با سرور به صورت Async (بدون مسدود کردن UI)
+  Future<void> _syncItemToServerAsync(ShoppingListItem item) async {
+    try {
+      await _apiService.createItem(item);
+    } catch (e) {
+      print('Background sync failed: $e');
+      // خطا در پس‌زمینه رخ داده و کاربر را آزار نمی‌دهد
+    }
   }
 }

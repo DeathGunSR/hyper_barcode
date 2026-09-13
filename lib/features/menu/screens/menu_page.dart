@@ -77,7 +77,7 @@ class _MenuPageState extends State<MenuPage> {
                     children: [
                       Expanded(
                         child: Column(
-                          crossAxisAlignment: isRTL ? CrossAxisAlignment.right : CrossAxisAlignment.left,
+                          crossAxisAlignment: isRTL ? CrossAxisAlignment.end : CrossAxisAlignment.start,
                           children: [
                             Text(
                               widget.currentLocale == 'fa' 
@@ -232,7 +232,7 @@ class _MenuPageState extends State<MenuPage> {
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
-                  crossAxisAlignment: isRTL ? CrossAxisAlignment.right : CrossAxisAlignment.left,
+                  crossAxisAlignment: isRTL ? CrossAxisAlignment.end : CrossAxisAlignment.start,
                   children: [
                     Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 4),
@@ -299,11 +299,47 @@ class _MenuPageState extends State<MenuPage> {
   void _showFullSettings(BuildContext context) {
     showDialog(
       context: context,
-      builder: (context) => SettingsDialog(
-        currentLocale: widget.currentLocale,
-        onLocaleChanged: widget.onLocaleChanged,
-        themeMode: widget.themeMode,
-        onThemeModeChanged: widget.onThemeModeChanged,
+      builder: (context) => AlertDialog(
+        title: Text(widget.currentLocale == 'fa' ? 'تنظیمات کامل' : 'Full Settings'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.language),
+              title: Text(widget.currentLocale == 'fa' ? 'زبان' : 'Language'),
+              trailing: Text(widget.currentLocale == 'fa' ? 'فارسی' : 'English'),
+              onTap: () {
+                Navigator.pop(context);
+                widget.onLocaleChanged(widget.currentLocale == 'fa' ? 'en' : 'fa');
+              },
+            ),
+            ListTile(
+              leading: Icon(widget.themeMode == ThemeMode.dark ? Icons.dark_mode : Icons.light_mode),
+              title: Text(widget.currentLocale == 'fa' ? 'حالت تم' : 'Theme Mode'),
+              trailing: Text(
+                widget.themeMode == ThemeMode.system
+                  ? (widget.currentLocale == 'fa' ? 'سیستم' : 'System')
+                  : widget.themeMode == ThemeMode.light
+                    ? (widget.currentLocale == 'fa' ? 'روشن' : 'Light')
+                    : (widget.currentLocale == 'fa' ? 'تیره' : 'Dark'),
+              ),
+              onTap: () {
+                Navigator.pop(context);
+                ThemeMode newMode;
+                switch (widget.themeMode) {
+                  case ThemeMode.system: newMode = ThemeMode.light; break;
+                  case ThemeMode.light: newMode = ThemeMode.dark; break;
+                  case ThemeMode.dark: newMode = ThemeMode.system; break;
+                }
+                widget.onThemeModeChanged(newMode);
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(widget.currentLocale == 'fa' ? 'بستن' : 'Close')),
+        ],
       ),
     );
   }

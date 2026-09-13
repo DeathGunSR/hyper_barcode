@@ -1,28 +1,77 @@
 ```
-# Flutter/Dart
-.dart_tool/
-.build/
-coverage/
-*.iws
-*.sw?
-*~
-/keys.properties
+# Build artifacts
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.a
+*.class
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+*.jar
+*.war
+*.zip
+*.tar.gz
+*.tar.xz
+*.tar.bz2
 
 # Dependencies
-vendor/
-
-# Logs
-*.log
-
-# Environment
+node_modules/
+venv/
+.venv/
 .env
 .env.local
-*.env*
+.env.*
 
-# OS generated files
-.DS_Store
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
+*.log
 Thumbs.db
+.DS_Store
 
-# WordPress
-wp-content/plugins/barcodify-shopping-list/
+# Coverage reports
+coverage/
+htmlcov/
+.coverage
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Testing
+.mypy_cache/
+.pytest_cache/
+.nyc_output/
+coverage.xml
+
+# Gradle
+.gradle/
+build/
+
+# Compressed files
+*.gz
+*.tar
+*.tgz
+*.bz2
+*.xz
+*.7z
+*.rar
+*.zst
+*.lz4
+*.lzh
+*.cab
+*.arj
+*.rpm
+*.deb
+*.Z
+*.lz
+*.lzo
 ```

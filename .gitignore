@@ -27,9 +27,13 @@ pubspec.lock
 # Environment
 .env
 .env.local
-*.env.*
+.env.*
 
-# Logs
+# Dependencies
+.dart_tool/
+.pub/
+
+# Logs and temp files
 *.log
 **/logs/
 

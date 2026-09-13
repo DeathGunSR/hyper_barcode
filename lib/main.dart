@@ -23,6 +23,21 @@ import 'pages/scanner_page.dart';
 import 'pages/shopping_list_page.dart';
 import 'pages/settings_page.dart';
 
+// Global font for Persian support in PDF
+pw.Font? _persianFont;
+
+Future<void> _loadPersianFont() async {
+  if (_persianFont == null) {
+    final ByteData fontData = await rootBundle.load('assets/fonts/Vazirmatn-Regular.ttf');
+    _persianFont = pw.Font.ttf(fontData);
+  }
+}
+
+// Helper function to shape Persian text (not needed with textDirection)
+// String _shapeText(String text) {
+//   return Intl.letters(text, locale: 'fa_IR');
+// }
+
 // Logger class for debugging
 class AppLogger {
   static final List<String> _logs = [];

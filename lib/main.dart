@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
+import 'package:provider/provider.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -15,6 +16,8 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'features/menu/screens/menu_page.dart';
+import 'features/shopping_list/providers/shopping_list_provider.dart';
+import 'features/shopping_list/models/shopping_list_item.dart';
 
 // Global font for Persian support in PDF
 pw.Font? _persianFont;

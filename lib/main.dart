@@ -14,6 +14,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'features/menu/screens/menu_page.dart';
 
 // Global font for Persian support in PDF
 pw.Font? _persianFont;
@@ -227,7 +228,7 @@ class _BarcodeScannerAppState extends State<BarcodeScannerApp> {
         useMaterial3: true,
         fontFamily: 'Vazirmatn',
       ),
-      home: HomePage(
+      home: MenuPage(
         currentLocale: _locale,
         onLocaleChanged: updateLocale,
         themeMode: _themeMode,

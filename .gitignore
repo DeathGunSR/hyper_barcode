@@ -1,27 +1,99 @@
 ```
 # Dependencies
-.pub/
 .dart_tool/
+.build/
 
-# Build artifacts
-build/
-*.g.dart
-
-# Logs
+# Logs and temp files
 *.log
+*.tmp
 
 # Environment
 .env
 .env.local
 *.env.*
 
-# IDE
-.vscode/
+# IDE files
 .idea/
+.vscode/
 *.swp
 *.swo
 
-# OS
-.DS_Store
-Thumbs.db
+# Coverage
+coverage/
+htmlcov/
+.coverage
+
+# Distribution / packaging
+dist/
+build/
+*.tar.gz
+*.zip
+
+# Compiled Binary Files
+*.class
+*.o
+*.so
+*.dll
+*.exe
+*.out
+*.a
+*.obj
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+.venv.bak/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage*
+.nox/
+.pytest_cache/
+.mypy_cache/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Ruby
+*.gem
+*.rbc
+.bundle/
+.config/coveralls
+coverage/
+InstalledFiles
+pkg/
+spec/reports/
+test/tmp/
+test/version_tmp/
+tmp/
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Gradle
+.gradle/
+build/
+
+# Rust
+target/
+Cargo.lock
+
+# Julia
+julia-*/
+
+# Zig
+zig*/
 ```

@@ -211,7 +211,11 @@ class ShoppingListProvider extends ChangeNotifier {
       
       // بروزرسانی آیتم‌های محلی با داده‌های سرور
       if (result.containsKey('server_items')) {
-        final serverItems = result['server_items'] as List<dynamic>;
+        final serverItemsData = result['server_items'] as List<dynamic>;
+        final serverItems = serverItemsData
+            .whereType<Map<String, dynamic>>()
+            .map((itemMap) => ShoppingListItem.fromMap(itemMap))
+            .toList();
         await _dbService.syncItemsFromServer(serverItems);
         await loadItems();
       }

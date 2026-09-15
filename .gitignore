@@ -1,39 +1,29 @@
 ```
-# Dependencies
-.pub/
+# Flutter/Dart specific
 .dart_tool/
-.build/
+.packages
+pubspec.lock
+build/
+*.g.dart
 
-# Logs
-*.log
-**/logs
-
-# Coverage
-coverage/
-lcov.info
-
-# Temporary files
-*.tmp
-*.temp
-.DS_Store
-Thumbs.db
-
-# Environment variables
-.env
-.env.*
-!.env.example
-
-# IDE specific
+# IDE
 .idea/
 .vscode/
 *.swp
 *.swo
 
-# OS generated
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+*.env.*
+
+# Dependencies
+vendor/
+
+# OS generated files
 .DS_Store
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Icon?
+Thumbs.db
 ```

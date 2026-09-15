@@ -216,8 +216,12 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
       itemCount: provider.filteredItems.length,
       itemBuilder: (context, index) {
         final item = provider.filteredItems[index];
-        final tag = provider.getTagById(item.tag);
-        final tagColor = _hexToColor(provider.getTagColor(item.tag));
+        // Get the first tag for display purposes (or show a combined indicator)
+        final firstTagId = item.tagIds.isNotEmpty ? item.tagIds.first : null;
+        final tag = firstTagId != null ? provider.getTagById(firstTagId) : null;
+        final tagColor = firstTagId != null 
+            ? _hexToColor(provider.getTagColor(firstTagId))
+            : Colors.grey;
 
         return Dismissible(
           key: Key(item.id.toString()),
@@ -248,12 +252,25 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                   color: item.isPurchased ? Colors.grey : null,
                 ),
               ),
-              subtitle: Text(
-                '${item.addedBy} • ${_formatDate(item.createdAt, provider.selectedLocale)}',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey.shade600,
-                ),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${item.addedBy} • ${_formatDate(item.createdAt, provider.selectedLocale)}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                  if (item.tagIds.length > 1)
+                    Text(
+                      '+${item.tagIds.length - 1} more tags',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.grey.shade500,
+                      ),
+                    ),
+                ],
               ),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -297,7 +314,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   void _showAddItemDialog(BuildContext context, ShoppingListProvider provider) {
     final nameController = TextEditingController();
     final barcodeController = TextEditingController();
-    String selectedTag = 'other';
+    List<String> selectedTagIds = ['other']; // Default to 'other' tag
 
     showDialog(
       context: context,
@@ -339,8 +356,8 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                 const SizedBox(height: 16),
                 Text(
                   provider.selectedLocale == 'fa' 
-                      ? 'دسته‌بندی' 
-                      : 'Category',
+                      ? 'دسته‌بندی‌ها (چندتا می‌توانید انتخاب کنید)' 
+                      : 'Categories (select multiple)',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
@@ -351,17 +368,31 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                     for (final tag in DefaultTags.tags)
                       ChoiceChip(
                         label: Text(tag.getName(provider.selectedLocale)),
-                        selected: selectedTag == tag.id,
-                        onSelected: (selected) {
-                          if (selected) {
-                            setDialogState(() {
-                              selectedTag = tag.id;
-                            });
-                          }
+                        selected: selectedTagIds.contains(tag.id),
+                        onSelected: (isSelected) {
+                          setDialogState(() {
+                            if (isSelected) {
+                              if (!selectedTagIds.contains(tag.id)) {
+                                selectedTagIds.add(tag.id);
+                              }
+                            } else {
+                              selectedTagIds.remove(tag.id);
+                              // Ensure at least one tag is selected
+                              if (selectedTagIds.isEmpty) {
+                                selectedTagIds.add('other');
+                              }
+                            }
+                          });
                         },
                         avatar: CircleAvatar(
                           backgroundColor: _hexToColor(tag.colorHex),
-                          child: const Icon(Icons.label, size: 16, color: Colors.white),
+                          child: Icon(
+                            selectedTagIds.contains(tag.id) 
+                                ? Icons.check 
+                                : Icons.label,
+                            size: 16,
+                            color: Colors.white,
+                          ),
                         ),
                       ),
                   ],
@@ -395,7 +426,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                 final newItem = ShoppingListItem(
                   name: nameController.text.trim(),
                   barcode: barcodeController.text.trim(),
-                  tag: selectedTag,
+                  tagIds: selectedTagIds,
                   addedBy: username,
                   createdAt: DateTime.now(),
                 );

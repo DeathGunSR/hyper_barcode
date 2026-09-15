@@ -47,7 +47,7 @@ class ShoppingListApiService {
         body: json.encode({
           'name': item.name,
           'barcode': item.barcode,
-          'tag': item.tag,
+          'tag': json.encode(item.tagIds), // Send as JSON array
           'added_by': item.addedBy,
           'created_at': item.createdAt.toIso8601String(),
         }),
@@ -185,11 +185,36 @@ class ShoppingListApiService {
   }
 
   ShoppingListItem _parseServerItem(Map<String, dynamic> data) {
+    // Parse tag field - could be a JSON string array or single value
+    List<String> tagIds;
+    final tagData = data['tag'];
+    
+    if (tagData == null || tagData == '') {
+      tagIds = [];
+    } else if (tagData is String) {
+      try {
+        // Try to parse as JSON array
+        final decoded = json.decode(tagData);
+        if (decoded is List) {
+          tagIds = List<String>.from(decoded);
+        } else {
+          tagIds = [tagData];
+        }
+      } catch (e) {
+        // Not JSON, treat as single tag ID
+        tagIds = [tagData];
+      }
+    } else if (tagData is List) {
+      tagIds = List<String>.from(tagData);
+    } else {
+      tagIds = [tagData.toString()];
+    }
+
     return ShoppingListItem(
       id: data['id'] as int?,
       name: data['name'] ?? '',
       barcode: data['barcode'] ?? '',
-      tag: data['tag'] ?? 'other',
+      tagIds: tagIds,
       isPurchased: (data['is_purchased'] ?? 0) == 1,
       addedBy: data['added_by'] ?? '',
       createdAt: data['created_at'] != null 

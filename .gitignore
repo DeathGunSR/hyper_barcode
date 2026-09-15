@@ -1,110 +1,39 @@
-# Compiled and build artifacts
-*.pyc
-__pycache__/
-*.o
-*.obj
-*.class
-*.exe
-*.dll
-*.so
-*.a
-*.out
-
+```
 # Dependencies
+.pub/
 .dart_tool/
 .build/
 
-# Logs and temp files
+# Logs
 *.log
+**/logs
+
+# Coverage
+coverage/
+lcov.info
+
+# Temporary files
 *.tmp
+*.temp
+.DS_Store
+Thumbs.db
 
-# Environment
+# Environment variables
 .env
-.env.local
-*.env.*
+.env.*
+!.env.example
 
-# IDE files
+# IDE specific
 .idea/
 .vscode/
 *.swp
 *.swo
 
-# Coverage
-coverage/
-htmlcov/
-.coverage
-
-# Distribution / packaging
-dist/
-build/
-*.tar.gz
-*.zip
-
-# Compiled Binary Files
-*.class
-*.o
-*.so
-*.dll
-*.exe
-*.out
-*.a
-*.obj
-
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-env/
-venv/
-.venv/
-.venv.bak/
-pip-log.txt
-pip-delete-this-directory.txt
-.tox/
-.coverage*
-.nox/
-.pytest_cache/
-.mypy_cache/
-
-# Node
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Ruby
-*.gem
-*.rbc
-.bundle/
-.config/coveralls
-coverage/
-InstalledFiles
-pkg/
-spec/reports/
-test/tmp/
-test/version_tmp/
-tmp/
-
-# Go
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
-
-# Gradle
-.gradle/
-build/
-
-# Rust
-target/
-Cargo.lock
-
-# Julia
-julia-*/
-
-# Zig
-zig*/
+# OS generated
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Icon?
 ```

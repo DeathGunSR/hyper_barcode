@@ -22,7 +22,7 @@ class ShoppingListDatabaseService {
 
     return await openDatabase(
       path,
-      version: 1,
+      version: 2, // Incremented for tag migration
       onCreate: (db, version) async {
         // جدول آیتم‌های چک‌لیست خرید
         await db.execute('''
@@ -49,6 +49,11 @@ class ShoppingListDatabaseService {
         ''');
 
         print('Shopping list database initialized at: $path');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        // Migration from version 1 to 2 - no schema changes needed
+        // The tag field already stores JSON for multiple tags
+        print('Database upgraded from $oldVersion to $newVersion');
       },
     );
   }

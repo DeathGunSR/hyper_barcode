@@ -186,8 +186,8 @@ class ShoppingListProvider extends ChangeNotifier {
           break;
       }
 
-      // فیلتر تگ
-      bool matchesTag = _selectedTag == null || item.tag == _selectedTag;
+      // فیلتر تگ - پشتیبانی از چندین تگ
+      bool matchesTag = _selectedTag == null || item.tagIds.contains(_selectedTag);
 
       return matchesFilter && matchesTag;
     }).toList();

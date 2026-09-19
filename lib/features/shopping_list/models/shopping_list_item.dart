@@ -222,6 +222,25 @@ class ShoppingListItem {
       pendingSync: pendingSync ?? this.pendingSync,
     );
   }
+  
+  /// بررسی اینکه آیا آیتم تگ خاصی دارد
+  bool hasTag(String tagId) => tags.contains(tagId);
+  
+  /// افزودن تگ
+  ShoppingListItem addTag(String tagId) {
+    if (!tags.contains(tagId)) {
+      return copyWith(tags: [...tags, tagId]);
+    }
+    return this;
+  }
+  
+  /// حذف تگ
+  ShoppingListItem removeTag(String tagId) {
+    if (tags.contains(tagId)) {
+      return copyWith(tags: tags.where((t) => t != tagId).toList());
+    }
+    return this;
+  }
 }
 
 // ==================== مدل تگ ====================
@@ -232,6 +251,7 @@ class ShoppingListTag {
   final String nameFa;
   final String nameEn;
   final String colorHex;
+  final bool isCustom;
 
   /// آیا این تگ توسط کاربر ساخته شده است (نه از تگ‌های پیش‌فرض).
   final bool isCustom;

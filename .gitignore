@@ -1,27 +1,22 @@
 ```
 # Dependencies
 .pub/
+.build/
 .dart_tool/
 
 # Build artifacts
 build/
-*.g.dart
-
-# Logs
-*.log
+**/generated_plugin_registrant.*
 
 # Environment
 .env
 .env.local
-*.env.*
+.env.*
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
+# Logs
+*.log
 
-# OS
+# OS generated files
 .DS_Store
 Thumbs.db
 ```

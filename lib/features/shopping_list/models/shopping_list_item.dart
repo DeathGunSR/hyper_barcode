@@ -1,11 +1,11 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 
 /// مدل آیتم چک‌لیست خرید
 class ShoppingListItem {
   final int? id;
   final String name;
   final String barcode;
-  final String tag;
+  final List<String> tags; // تغییر از String tag به List<String> tags
   final bool isPurchased;
   final String addedBy; // نام کاربری اضافه‌کننده
   final DateTime createdAt;
@@ -15,19 +15,19 @@ class ShoppingListItem {
     this.id,
     required this.name,
     required this.barcode,
-    required this.tag,
+    List<String>? tags, // تغییر یافته
     this.isPurchased = false,
     required this.addedBy,
     required this.createdAt,
     this.purchasedAt,
-  });
+  }) : tags = tags ?? ['other']; // مقدار پیش‌فرض
 
   Map<String, dynamic> toMap() {
     return {
       'id': id,
       'name': name,
       'barcode': barcode,
-      'tag': tag,
+      'tags': tags.join(','), // ذخیره به صورت رشته CSV
       'is_purchased': isPurchased ? 1 : 0,
       'added_by': addedBy,
       'created_at': createdAt.toIso8601String(),
@@ -36,11 +36,15 @@ class ShoppingListItem {
   }
 
   factory ShoppingListItem.fromMap(Map<String, dynamic> map) {
+    String tagsData = map['tags'] ?? map['tag'] ?? 'other'; // پشتیبانی از فیلد قدیمی
+    List<String> tagsList = tagsData.split(',').where((t) => t.trim().isNotEmpty).toList();
+    if (tagsList.isEmpty) tagsList = ['other'];
+    
     return ShoppingListItem(
       id: map['id'],
       name: map['name'] ?? '',
       barcode: map['barcode'] ?? '',
-      tag: map['tag'] ?? '',
+      tags: tagsList,
       isPurchased: (map['is_purchased'] ?? 0) == 1,
       addedBy: map['added_by'] ?? '',
       createdAt: DateTime.parse(map['created_at']),
@@ -54,7 +58,7 @@ class ShoppingListItem {
     int? id,
     String? name,
     String? barcode,
-    String? tag,
+    List<String>? tags,
     bool? isPurchased,
     String? addedBy,
     DateTime? createdAt,
@@ -64,12 +68,31 @@ class ShoppingListItem {
       id: id ?? this.id,
       name: name ?? this.name,
       barcode: barcode ?? this.barcode,
-      tag: tag ?? this.tag,
+      tags: tags ?? List.from(this.tags),
       isPurchased: isPurchased ?? this.isPurchased,
       addedBy: addedBy ?? this.addedBy,
       createdAt: createdAt ?? this.createdAt,
       purchasedAt: purchasedAt ?? this.purchasedAt,
     );
+  }
+  
+  /// بررسی اینکه آیا آیتم تگ خاصی دارد
+  bool hasTag(String tagId) => tags.contains(tagId);
+  
+  /// افزودن تگ
+  ShoppingListItem addTag(String tagId) {
+    if (!tags.contains(tagId)) {
+      return copyWith(tags: [...tags, tagId]);
+    }
+    return this;
+  }
+  
+  /// حذف تگ
+  ShoppingListItem removeTag(String tagId) {
+    if (tags.contains(tagId)) {
+      return copyWith(tags: tags.where((t) => t != tagId).toList());
+    }
+    return this;
   }
 }
 
@@ -79,12 +102,14 @@ class ShoppingListTag {
   final String nameFa;
   final String nameEn;
   final String colorHex;
+  final bool isCustom;
 
   const ShoppingListTag({
     required this.id,
     required this.nameFa,
     required this.nameEn,
     required this.colorHex,
+    this.isCustom = false,
   });
 
   String getName(String locale) {
@@ -94,7 +119,7 @@ class ShoppingListTag {
 
 /// تگ‌های پیش‌فرض
 class DefaultTags {
-  static const List<ShoppingListTag> tags = [
+  static const List<ShoppingListTag> _defaultTags = [
     ShoppingListTag(id: 'dairy', nameFa: 'لبنیات', nameEn: 'Dairy', colorHex: '#FFB74D'),
     ShoppingListTag(id: 'protein', nameFa: 'پروتئینی', nameEn: 'Protein', colorHex: '#E57373'),
     ShoppingListTag(id: 'grains', nameFa: 'غلات', nameEn: 'Grains', colorHex: '#FFF176'),
@@ -107,9 +132,11 @@ class DefaultTags {
     ShoppingListTag(id: 'other', nameFa: 'سایر', nameEn: 'Other', colorHex: '#BDBDBD'),
   ];
 
+  static List<ShoppingListTag> get tags => _defaultTags;
+
   static ShoppingListTag? getById(String id) {
     try {
-      return tags.firstWhere((tag) => tag.id == id);
+      return _defaultTags.firstWhere((tag) => tag.id == id);
     } catch (e) {
       return null;
     }

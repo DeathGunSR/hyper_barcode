@@ -95,10 +95,11 @@ class ShoppingListDatabaseService {
 
   Future<List<ShoppingListItem>> getItemsByTag(String tag) async {
     final db = await database;
+    // جستجو برای آیتم‌هایی که تگ مورد نظر را در لیست تگ‌های خود دارند
     final List<Map<String, dynamic>> maps = await db.query(
       'shopping_items',
-      where: 'tag = ?',
-      whereArgs: [tag],
+      where: 'tags LIKE ?',
+      whereArgs: ['%$tag%'],
       orderBy: 'created_at DESC',
     );
     return List.generate(maps.length, (i) => ShoppingListItem.fromMap(maps[i]));

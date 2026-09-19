@@ -224,20 +224,20 @@ class ShoppingListItem {
   }
   
   /// بررسی اینکه آیا آیتم تگ خاصی دارد
-  bool hasTag(String tagId) => tags.contains(tagId);
+  bool hasTag(String tagId) => tagIds.contains(tagId);
   
   /// افزودن تگ
   ShoppingListItem addTag(String tagId) {
-    if (!tags.contains(tagId)) {
-      return copyWith(tags: [...tags, tagId]);
+    if (!tagIds.contains(tagId)) {
+      return copyWith(tagIds: [...tagIds, tagId]);
     }
     return this;
   }
   
   /// حذف تگ
   ShoppingListItem removeTag(String tagId) {
-    if (tags.contains(tagId)) {
-      return copyWith(tags: tags.where((t) => t != tagId).toList());
+    if (tagIds.contains(tagId)) {
+      return copyWith(tagIds: tagIds.where((t) => t != tagId).toList());
     }
     return this;
   }
@@ -251,7 +251,6 @@ class ShoppingListTag {
   final String nameFa;
   final String nameEn;
   final String colorHex;
-  final bool isCustom;
 
   /// آیا این تگ توسط کاربر ساخته شده است (نه از تگ‌های پیش‌فرض).
   final bool isCustom;

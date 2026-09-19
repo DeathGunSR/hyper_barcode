@@ -1,20 +1,27 @@
 ```
-# Dependencies
-.pub/
-.build/
+# Flutter/Dart specific
 .dart_tool/
-
-# Build artifacts
+.packages
+pubspec.lock
 build/
-**/generated_plugin_registrant.*
+*.g.dart
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
 
 # Environment
 .env
 .env.local
 .env.*
 
-# Logs
-*.log
+# Dependencies
+vendor/
 
 # OS generated files
 .DS_Store

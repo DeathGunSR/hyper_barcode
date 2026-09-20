@@ -353,7 +353,6 @@ class _HomePageState extends State<HomePage> {
                 }
               },
               controller: MobileScannerController(
-                detectionSpeed: BarcodeDetectionSpeed.normal,
                 facing: CameraFacing.back,
               ),
             ),

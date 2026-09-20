@@ -219,14 +219,13 @@ class _BarcodeScannerAppState extends State<BarcodeScannerApp> {
         useMaterial3: true,
         fontFamily: 'Vazirmatn',
       ),
-      builder: (context, child) {
-        return DebugOverlay(child: child!);
-      },
-      home: MenuPage(
+      home: DebugOverlay(
+        child: MenuPage(
         currentLocale: _locale,
         onLocaleChanged: updateLocale,
         themeMode: _themeMode,
         onThemeModeChanged: updateThemeMode,
+      ),
       ),
     );
   }

@@ -28,60 +28,64 @@ class _DebugOverlayState extends State<DebugOverlay> {
   Widget build(BuildContext context) {
     return Consumer<AppLogger>(
       builder: (context, logger, _) {
-        return Stack(
-          children: [
-            widget.child,
-            if (_isVisible && !_isMinimized)
-              Positioned(
-                top: MediaQuery.of(context).padding.top + 10,
-                right: 10,
-                left: 10,
-                child: Container(
-                  constraints: const BoxConstraints(maxHeight: 300),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surface.withOpacity(0.95),
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.3),
-                        blurRadius: 8,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
+        return SizedBox.expand(
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              widget.child,
+              if (_isVisible && !_isMinimized)
+                Positioned(
+                  top: MediaQuery.of(context).padding.top + 10,
+                  right: 10,
+                  left: 10,
+                  child: Container(
+                    constraints: const BoxConstraints(maxHeight: 300),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surface.withOpacity(0.95),
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _buildHeader(logger),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 240),
+                          child: _buildLogList(logger),
+                        ),
+                      ],
+                    ),
                   ),
-                  child: Column(
-                    children: [
-                      _buildHeader(logger),
-                      Expanded(
-                        child: _buildLogList(logger),
-                      ),
-                    ],
+                )
+              else if (_isVisible && _isMinimized)
+                Positioned(
+                  top: MediaQuery.of(context).padding.top + 10,
+                  right: 10,
+                  child: _buildMinimizedButton(logger),
+                ),
+              if (!_isVisible)
+                Positioned(
+                  bottom: 20,
+                  right: 20,
+                  child: FloatingActionButton.small(
+                    heroTag: 'debug_fab',
+                    onPressed: () => setState(() => _isVisible = true),
+                    backgroundColor: logger.isServerConnected
+                        ? Colors.green
+                        : logger.lastServerError.isNotEmpty
+                            ? Colors.red
+                            : Colors.orange,
+                    child: const Icon(Icons.bug_report, size: 20),
                   ),
                 ),
-              )
-            else if (_isVisible && _isMinimized)
-              Positioned(
-                top: MediaQuery.of(context).padding.top + 10,
-                right: 10,
-                child: _buildMinimizedButton(logger),
-              ),
-            // دکمه شناور برای باز کردن لاگ
-            if (!_isVisible)
-              Positioned(
-                bottom: 20,
-                right: 20,
-                child: FloatingActionButton.small(
-                  heroTag: 'debug_fab',
-                  onPressed: () => setState(() => _isVisible = true),
-                  backgroundColor: logger.isServerConnected
-                      ? Colors.green
-                      : logger.lastServerError.isNotEmpty
-                          ? Colors.red
-                          : Colors.orange,
-                  child: const Icon(Icons.bug_report, size: 20),
-                ),
-              ),
-          ],
+            ],
+          ),
         );
       },
     );
@@ -114,32 +118,26 @@ class _DebugOverlayState extends State<DebugOverlay> {
           IconButton(
             icon: const Icon(Icons.filter_list, size: 20),
             onPressed: () => _showFilterDialog(logger),
-            tooltip: 'Filter Logs',
           ),
           IconButton(
             icon: Icon(logger.isPaused ? Icons.play_arrow : Icons.pause, size: 20),
             onPressed: () => logger.togglePause(),
-            tooltip: logger.isPaused ? 'Resume' : 'Pause',
           ),
           IconButton(
             icon: Icon(logger.autoScroll ? Icons.vertical_align_bottom : Icons.lock, size: 20),
             onPressed: () => logger.toggleAutoScroll(),
-            tooltip: logger.autoScroll ? 'Auto-scroll On' : 'Auto-scroll Off',
           ),
           IconButton(
             icon: const Icon(Icons.delete_outline, size: 20),
             onPressed: () => logger.clearLogs(),
-            tooltip: 'Clear Logs',
           ),
           IconButton(
             icon: const Icon(Icons.download, size: 20),
             onPressed: () => _exportLogs(logger),
-            tooltip: 'Export Logs',
           ),
           IconButton(
             icon: const Icon(Icons.keyboard_arrow_up, size: 20),
             onPressed: () => setState(() => _isMinimized = true),
-            tooltip: 'Minimize',
           ),
         ],
       ),

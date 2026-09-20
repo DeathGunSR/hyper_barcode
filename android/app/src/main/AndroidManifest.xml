@@ -1,4 +1,19 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- ============================================================
+         CRITICAL: required for ALL network access (WooCommerce product
+         sync + WordPress shopping-list REST API).
+
+         This permission used to exist ONLY in the debug/profile manifests
+         (android/app/src/debug|profile/AndroidManifest.xml), therefore
+         release builds had NO network access at all and every request
+         failed with:
+             SocketException: Failed host lookup / Operation not permitted
+         ============================================================ -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Used to distinguish "device offline" from "server unreachable"
+         in the in-app connection diagnostics screen. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
     <!-- Camera permission for barcode scanning -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="true" />

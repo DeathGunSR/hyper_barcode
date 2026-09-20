@@ -1,9 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
+import '../../../core/providers/sync_provider.dart';
+import '../../../core/widgets/sync_status_widget.dart';
 import '../models/shopping_list_item.dart';
 import '../providers/shopping_list_provider.dart';
 
-/// صفحه اصلی چک‌لیست خرید
+/// صفحه اصلی چک‌لیست خرید.
+///
+/// نکته: [ShoppingListProvider] در ریشه برنامه (`MultiProvider` در
+/// `main.dart`) فراهم شده است؛ بنابراین `context.read` در `initState` بدون
+/// خطای ProviderNotFoundException کار می‌کند.
 class ShoppingListScreen extends StatefulWidget {
   final String currentLocale;
 
@@ -18,91 +25,117 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ShoppingListProvider>().initialize(widget.currentLocale);
+      if (!mounted) return;
+      context
+          .read<ShoppingListProvider>()
+          .initialize(widget.currentLocale);
     });
   }
 
+  bool get _isFa => widget.currentLocale == 'fa';
+
+  Color _hexToColor(String hexString) => Color(hexColorToArgb32(hexString));
+
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => ShoppingListProvider(),
-      child: Consumer<ShoppingListProvider>(
-        builder: (context, provider, child) {
-          return Scaffold(
-            appBar: AppBar(
-              title: Text(
-                widget.currentLocale == 'fa' 
-                    ? 'چک‌لیست خرید مشترک' 
-                    : 'Shared Shopping List',
+    return Consumer<ShoppingListProvider>(
+      builder: (BuildContext context, ShoppingListProvider provider, _) {
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(
+              _isFa ? 'چک‌لیست خرید مشترک' : 'Shared Shopping List',
+            ),
+            backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+            actions: <Widget>[
+              // دکمه همگام‌سازی: غیرمسدودکننده و با نمایش وضعیت.
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: SyncStatusIndicator(
+                  showWhenIdle: true,
+                  onTap: () => _startSync(context, provider),
+                ),
               ),
-              backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-              actions: [
-                // دکمه همگام‌سازی
-                IconButton(
-                  icon: provider.isSyncing 
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.sync),
-                  onPressed: () => provider.syncWithServer(),
-                  tooltip: widget.currentLocale == 'fa' 
-                      ? 'همگام‌سازی با سرور' 
-                      : 'Sync with server',
-                ),
-                // دکمه تنظیمات کاربر
-                IconButton(
-                  icon: const Icon(Icons.person),
-                  onPressed: () => _showUserSettings(context, provider),
-                  tooltip: widget.currentLocale == 'fa' 
-                      ? 'تنظیمات کاربر' 
-                      : 'User settings',
-                ),
-              ],
-            ),
-            body: Column(
-              children: [
-                // نوار فیلتر تب‌ها
-                _buildFilterTabs(context, provider),
-                
-                // نوار فیلتر تگ‌ها
-                _buildTagFilterBar(context, provider),
-                
-                // لیست آیتم‌ها
-                Expanded(
-                  child: _buildItemList(context, provider),
-                ),
-              ],
-            ),
-            floatingActionButton: FloatingActionButton.extended(
-              onPressed: () => _showAddItemDialog(context, provider),
-              icon: const Icon(Icons.add),
-              label: Text(
-                widget.currentLocale == 'fa' ? 'افزودن آیتم' : 'Add Item',
+              // مدیریت تگ‌های سفارشی
+              IconButton(
+                icon: const Icon(Icons.local_offer),
+                onPressed: () => _showTagManager(context, provider),
+                tooltip: _isFa ? 'مدیریت تگ‌ها' : 'Manage tags',
               ),
-            ),
-          );
-        },
-      ),
+              // تنظیمات کاربر
+              IconButton(
+                icon: const Icon(Icons.person),
+                onPressed: () => _showUserSettings(context, provider),
+                tooltip: _isFa ? 'تنظیمات کاربر' : 'User settings',
+              ),
+            ],
+          ),
+          body: Column(
+            children: <Widget>[
+              _buildFilterTabs(context, provider),
+              _buildTagFilterBar(context, provider),
+              Expanded(child: _buildItemList(context, provider)),
+            ],
+          ),
+          floatingActionButton: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: <Widget>[
+              FloatingActionButton.small(
+                heroTag: 'addCustomTagFab',
+                onPressed: () => _showCreateTagDialog(context, provider),
+                tooltip: _isFa ? 'ساخت تگ جدید' : 'Create new tag',
+                backgroundColor: Colors.purple,
+                child: const Icon(Icons.new_label, color: Colors.white),
+              ),
+              const SizedBox(height: 10),
+              FloatingActionButton.extended(
+                heroTag: 'addItemFab',
+                onPressed: () => _showAddItemDialog(context, provider),
+                icon: const Icon(Icons.add),
+                label: Text(_isFa ? 'افزودن آیتم' : 'Add Item'),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildFilterTabs(BuildContext context, ShoppingListProvider provider) {
+  /// شروع همگام‌سازی غیرمسدودکننده + نمایش نتیجه با SnackBar.
+  Future<void> _startSync(
+      BuildContext context, ShoppingListProvider provider) async {
+    final SyncState result = await provider.syncWithServer();
+    if (!mounted) return;
+
+    if (result == SyncState.success) {
+      showSyncResultSnackBar(
+        context,
+        result,
+        isRTL: _isFa,
+        message: SyncProvider().lastSummary ??
+            (_isFa ? 'همگام‌سازی کامل شد' : 'Sync completed'),
+      );
+    } else {
+      showSyncResultSnackBar(context, result, isRTL: _isFa);
+    }
+  }
+
+  // ==================== نوار فیلتر وضعیت ====================
+
+  Widget _buildFilterTabs(
+      BuildContext context, ShoppingListProvider provider) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
-        children: [
-          for (final filter in ShoppingListFilter.values)
+        children: <Widget>[
+          for (final ShoppingListFilter filter in ShoppingListFilter.values)
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
                 child: FilterChip(
                   label: Text(filter.getLabel(provider.selectedLocale)),
                   selected: provider.currentFilter == filter,
-                  onSelected: (selected) {
-                    provider.setFilter(filter);
-                  },
+                  onSelected: (_) => provider.setFilter(filter),
                   showCheckmark: false,
                 ),
               ),
@@ -112,47 +145,59 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     );
   }
 
-  Widget _buildTagFilterBar(BuildContext context, ShoppingListProvider provider) {
+  // ==================== نوار فیلتر تگ‌ها (شامل تگ‌های سفارشی) ====================
+
+  Widget _buildTagFilterBar(
+      BuildContext context, ShoppingListProvider provider) {
+    final List<ShoppingListTag> tags = provider.allTags;
+
     return SizedBox(
       height: 50,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        itemCount: DefaultTags.tags.length + 1, // +1 for "All" option
-        itemBuilder: (context, index) {
+        itemCount: tags.length + 1, // +1 برای گزینه «همه»
+        itemBuilder: (BuildContext context, int index) {
           if (index == 0) {
-            // گزینه "همه تگ‌ها"
             return Padding(
               padding: const EdgeInsets.only(right: 8),
               child: FilterChip(
                 avatar: const CircleAvatar(
                   backgroundColor: Colors.grey,
-                  child: Icon(Icons.all_inclusive, size: 18, color: Colors.white),
+                  child:
+                      Icon(Icons.all_inclusive, size: 18, color: Colors.white),
                 ),
-                label: Text(
-                  provider.selectedLocale == 'fa' ? 'همه' : 'All',
-                ),
+                label: Text(provider.selectedLocale == 'fa' ? 'همه' : 'All'),
                 selected: provider.selectedTag == null,
-                onSelected: (selected) {
-                  provider.setTagFilter(null);
-                },
+                onSelected: (_) => provider.setTagFilter(null),
               ),
             );
           }
 
-          final tag = DefaultTags.tags[index - 1];
+          final ShoppingListTag tag = tags[index - 1];
+          final bool selected = provider.selectedTag == tag.id;
+
           return Padding(
             padding: const EdgeInsets.only(right: 8),
-            child: FilterChip(
-              avatar: CircleAvatar(
-                backgroundColor: _hexToColor(tag.colorHex),
-                child: const Icon(Icons.label, size: 18, color: Colors.white),
+            child: GestureDetector(
+              // نگه‌داشتن روی تگ سفارشی → حذف آن.
+              onLongPress: tag.isCustom
+                  ? () => _confirmDeleteTag(context, provider, tag)
+                  : null,
+              child: FilterChip(
+                avatar: CircleAvatar(
+                  backgroundColor: _hexToColor(tag.colorHex),
+                  child: Icon(
+                    tag.isCustom ? Icons.star : Icons.label,
+                    size: 18,
+                    color: Colors.white,
+                  ),
+                ),
+                label: Text(tag.displayName(provider.selectedLocale)),
+                selected: selected,
+                onSelected: (_) =>
+                    provider.setTagFilter(selected ? null : tag.id),
               ),
-              label: Text(tag.getName(provider.selectedLocale)),
-              selected: provider.selectedTag == tag.id,
-              onSelected: (selected) {
-                provider.setTagFilter(selected ? tag.id : null);
-              },
             ),
           );
         },
@@ -160,52 +205,24 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     );
   }
 
-  Widget _buildItemList(BuildContext context, ShoppingListProvider provider) {
-    if (provider.isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
+  // ==================== لیست آیتم‌ها ====================
 
-    if (provider.error != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.error_outline, size: 64, color: Colors.red),
-            const SizedBox(height: 16),
-            Text(provider.error!),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () => provider.loadItems(),
-              child: Text(
-                provider.selectedLocale == 'fa' 
-                    ? 'تلاش مجدد' 
-                    : 'Try again',
-              ),
-            ),
-          ],
-        ),
-      );
+  Widget _buildItemList(BuildContext context, ShoppingListProvider provider) {
+    if (provider.isLoading && provider.items.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
     }
 
     if (provider.filteredItems.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.shopping_cart_outlined,
-              size: 64,
-              color: Colors.grey.shade400,
-            ),
+          children: <Widget>[
+            Icon(Icons.shopping_cart_outlined,
+                size: 64, color: Colors.grey.shade400),
             const SizedBox(height: 16),
             Text(
-              provider.selectedLocale == 'fa'
-                  ? 'هیچ آیتمی یافت نشد'
-                  : 'No items found',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey.shade600,
-              ),
+              _isFa ? 'هیچ آیتمی یافت نشد' : 'No items found',
+              style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
             ),
           ],
         ),
@@ -214,110 +231,186 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
 
     return ListView.builder(
       itemCount: provider.filteredItems.length,
-      itemBuilder: (context, index) {
-        final item = provider.filteredItems[index];
-        final tag = provider.getTagById(item.tag);
-        final tagColor = _hexToColor(provider.getTagColor(item.tag));
-
-        return Dismissible(
-          key: Key(item.id.toString()),
-          direction: DismissDirection.endToStart,
-          background: Container(
-            alignment: Alignment.centerRight,
-            padding: const EdgeInsets.only(right: 20),
-            color: Colors.red,
-            child: const Icon(Icons.delete, color: Colors.white),
-          ),
-          onDismissed: (_) => provider.deleteItem(item.id!),
-          child: Card(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: ListTile(
-              leading: CircleAvatar(
-                backgroundColor: tagColor,
-                child: Text(
-                  tag?.getName(provider.selectedLocale).substring(0, 1) ?? '?',
-                  style: const TextStyle(color: Colors.white),
-                ),
-              ),
-              title: Text(
-                item.name,
-                style: TextStyle(
-                  decoration: item.isPurchased 
-                      ? TextDecoration.lineThrough 
-                      : null,
-                  color: item.isPurchased ? Colors.grey : null,
-                ),
-              ),
-              subtitle: Text(
-                '${item.addedBy} • ${_formatDate(item.createdAt, provider.selectedLocale)}',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey.shade600,
-                ),
-              ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // نمایش بارکد اگر وجود دارد
-                  if (item.barcode.isNotEmpty)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade200,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        item.barcode,
-                        style: const TextStyle(
-                          fontSize: 10,
-                          fontFamily: 'monospace',
-                        ),
-                      ),
-                    ),
-                  const SizedBox(width: 8),
-                  // چک‌باکس وضعیت خرید
-                  Checkbox(
-                    value: item.isPurchased,
-                    onChanged: (value) {
-                      provider.togglePurchaseStatus(item.id!, value ?? false);
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
+      itemBuilder: (BuildContext context, int index) {
+        final ShoppingListItem item = provider.filteredItems[index];
+        return _buildItemTile(context, provider, item);
       },
     );
   }
 
-  void _showAddItemDialog(BuildContext context, ShoppingListProvider provider) {
-    final nameController = TextEditingController();
-    final barcodeController = TextEditingController();
-    String selectedTag = 'other';
+  Widget _buildItemTile(
+    BuildContext context,
+    ShoppingListProvider provider,
+    ShoppingListItem item,
+  ) {
+    final List<ShoppingListTag> itemTags = item.tagIds
+        .map((String id) => provider.getTagById(id))
+        .whereType<ShoppingListTag>()
+        .toList();
 
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: Text(
-            provider.selectedLocale == 'fa' 
-                ? 'افزودن آیتم جدید' 
-                : 'Add New Item',
+    final Color leadingColor = itemTags.isEmpty
+        ? Colors.grey
+        : _hexToColor(itemTags.first.colorHex);
+
+    return Dismissible(
+      key: ValueKey<String>('item_${item.id}'),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        color: Colors.red,
+        child: const Icon(Icons.delete, color: Colors.white),
+      ),
+      onDismissed: (_) => provider.deleteItem(item.id!),
+      child: Card(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              CircleAvatar(
+                backgroundColor: leadingColor,
+                child: Text(
+                  itemTags.isEmpty
+                      ? '?'
+                      : itemTags.first
+                          .displayName(provider.selectedLocale)
+                          .substring(0, 1),
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      item.name,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                        decoration: item.isPurchased
+                            ? TextDecoration.lineThrough
+                            : null,
+                        color: item.isPurchased ? Colors.grey : null,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${item.addedBy} • '
+                      '${_formatDate(item.createdAt, provider.selectedLocale)}'
+                      '${item.pendingSync ? ' • pending' : ''}',
+                      style: TextStyle(
+                          fontSize: 11, color: Colors.grey.shade600),
+                    ),
+                    // نمایش «همه» تگهای آیتم (چند‌به‌چند، بدون محدودیت).
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: <Widget>[
+                        for (final ShoppingListTag tag in itemTags)
+                          _buildSmallTagChip(
+                            tag: tag,
+                            locale: provider.selectedLocale,
+                            onRemove: () =>
+                                provider.toggleTagOnItem(item.id!, tag.id),
+                          ),
+                        _buildAddTagChip(context, provider, item),
+                      ],
+                    ),
+                    if (item.barcode.isNotEmpty) ...<Widget>[
+                      const SizedBox(height: 4),
+                      Text(
+                        item.barcode,
+                        style: const TextStyle(
+                            fontSize: 10, fontFamily: 'monospace'),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              Column(
+                children: <Widget>[
+                  Checkbox(
+                    value: item.isPurchased,
+                    onChanged: (bool? value) => provider
+                        .togglePurchaseStatus(item.id!, value ?? false),
+                  ),
+                  InkWell(
+                    onTap: () => _showEditTagsDialog(context, provider, item),
+                    child: const Padding(
+                      padding: EdgeInsets.all(4),
+                      child: Icon(Icons.edit, size: 16, color: Colors.grey),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSmallTagChip({
+    required ShoppingListTag tag,
+    required String locale,
+    required VoidCallback onRemove,
+  }) {
+    return Chip(
+      label: Text(
+        tag.displayName(locale),
+        style: const TextStyle(fontSize: 10, color: Colors.white),
+      ),
+      backgroundColor: _hexToColor(tag.colorHex),
+      deleteIcon: const Icon(Icons.close, size: 12, color: Colors.white),
+      onDeleted: onRemove,
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      padding: EdgeInsets.zero,
+      labelPadding: const EdgeInsets.symmetric(horizontal: 4),
+    );
+  }
+
+  Widget _buildAddTagChip(
+    BuildContext context,
+    ShoppingListProvider provider,
+    ShoppingListItem item,
+  ) {
+    return ActionChip(
+      avatar: const Icon(Icons.add, size: 12),
+      label: const Text('tag', style: TextStyle(fontSize: 10)),
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      onPressed: () => _showEditTagsDialog(context, provider, item),
+    );
+  }
+
+  // ==================== افزودن آیتم جدید ====================
+
+  void _showAddItemDialog(
+      BuildContext context, ShoppingListProvider provider) {
+    final TextEditingController nameController = TextEditingController();
+    final TextEditingController barcodeController = TextEditingController();
+    List<String> selectedTagIds = <String>['other'];
+
+    showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) => StatefulBuilder(
+        builder: (BuildContext context, StateSetter setDialogState) =>
+            AlertDialog(
+          title: Text(_isFa ? 'افزودن آیتم جدید' : 'Add New Item'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
-              children: [
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
                 TextField(
                   controller: nameController,
                   decoration: InputDecoration(
-                    labelText: provider.selectedLocale == 'fa' 
-                        ? 'نام کالا' 
-                        : 'Item name',
+                    labelText: _isFa ? 'نام کالا' : 'Item name',
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
@@ -327,9 +420,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                 TextField(
                   controller: barcodeController,
                   decoration: InputDecoration(
-                    labelText: provider.selectedLocale == 'fa' 
-                        ? 'بارکد (اختیاری)' 
-                        : 'Barcode (optional)',
+                    labelText: _isFa ? 'بارکد (اختیاری)' : 'Barcode (optional)',
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
@@ -337,181 +428,357 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                Text(
-                  provider.selectedLocale == 'fa' 
-                      ? 'دسته‌بندی' 
-                      : 'Category',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final tag in DefaultTags.tags)
-                      ChoiceChip(
-                        label: Text(tag.getName(provider.selectedLocale)),
-                        selected: selectedTag == tag.id,
-                        onSelected: (selected) {
-                          if (selected) {
-                            setDialogState(() {
-                              selectedTag = tag.id;
-                            });
-                          }
-                        },
-                        avatar: CircleAvatar(
-                          backgroundColor: _hexToColor(tag.colorHex),
-                          child: const Icon(Icons.label, size: 16, color: Colors.white),
-                        ),
-                      ),
-                  ],
+                _buildMultiTagSelector(
+                  provider: provider,
+                  selectedTagIds: selectedTagIds,
+                  setDialogState: setDialogState,
+                  onChanged: (List<String> updated) =>
+                      selectedTagIds = updated,
+                  onRequestCreateTag: () => _showCreateTagDialog(
+                    context,
+                    provider,
+                    onCreated: (ShoppingListTag tag) {
+                      selectedTagIds = <String>[...selectedTagIds, tag.id];
+                      setDialogState(() {});
+                    },
+                  ),
                 ),
               ],
             ),
           ),
-          actions: [
+          actions: <Widget>[
             TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(
-                provider.selectedLocale == 'fa' ? 'انصراف' : 'Cancel',
-              ),
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text(_isFa ? 'انصراف' : 'Cancel'),
             ),
             ElevatedButton(
               onPressed: () async {
                 if (nameController.text.trim().isEmpty) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text(
-                        provider.selectedLocale == 'fa' 
-                            ? 'لطفاً نام کالا را وارد کنید' 
-                            : 'Please enter item name',
-                      ),
+                      content: Text(_isFa
+                          ? 'لطفاً نام کالا را وارد کنید'
+                          : 'Please enter item name'),
                     ),
                   );
                   return;
                 }
 
-                final username = provider.username ?? 'Unknown';
-                final newItem = ShoppingListItem(
+                final ShoppingListItem newItem = ShoppingListItem(
                   name: nameController.text.trim(),
                   barcode: barcodeController.text.trim(),
-                  tag: selectedTag,
-                  addedBy: username,
+                  tagIds: selectedTagIds,
+                  addedBy: provider.username ?? 'Unknown',
                   createdAt: DateTime.now(),
                 );
 
                 await provider.addItem(newItem);
-                if (context.mounted) Navigator.pop(context);
-              },
-              child: Text(
-                provider.selectedLocale == 'fa' ? 'افزودن' : 'Add',
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+                if (!dialogContext.mounted) return;
+                Navigator.pop(dialogContext);
 
-  void _showUserSettings(BuildContext context, ShoppingListProvider provider) {
-    final usernameController = TextEditingController(text: provider.username ?? '');
-    final phoneController = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(
-          provider.selectedLocale == 'fa' 
-              ? 'تنظیمات کاربر' 
-              : 'User Settings',
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: usernameController,
-              decoration: InputDecoration(
-                labelText: provider.selectedLocale == 'fa' 
-                    ? 'نام کاربری' 
-                    : 'Username',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                prefixIcon: const Icon(Icons.person),
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: phoneController,
-              decoration: InputDecoration(
-                labelText: provider.selectedLocale == 'fa' 
-                    ? 'شماره موبایل' 
-                    : 'Mobile number',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                prefixIcon: const Icon(Icons.phone),
-              ),
-              keyboardType: TextInputType.phone,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              provider.selectedLocale == 'fa' ? 'انصراف' : 'Cancel',
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              if (usernameController.text.trim().isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('نام کاربری الزامی است')),
-                );
-                return;
-              }
-
-              await provider.saveUser(
-                usernameController.text.trim(),
-                phoneController.text.trim(),
-              );
-              
-              if (context.mounted) {
-                Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text(
-                      provider.selectedLocale == 'fa' 
-                          ? 'اطلاعات کاربر ذخیره شد' 
-                          : 'User info saved',
-                    ),
+                    content: Text(_isFa
+                        ? 'آیتم اضافه شد (در حال ارسال به سرور)'
+                        : 'Item added (uploading in background)'),
+                    duration: const Duration(seconds: 2),
                   ),
                 );
-              }
-            },
-            child: Text(
-              provider.selectedLocale == 'fa' ? 'ذخیره' : 'Save',
+              },
+              child: Text(_isFa ? 'افزودن' : 'Add'),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  Color _hexToColor(String hexString) {
-    final buffer = StringBuffer();
-    if (hexString.length == 6 || hexString.length == 7) buffer.write('ff');
-    buffer.write(hexString.replaceFirst('#', ''));
-    return Color(int.parse(buffer.toString(), radix: 16));
+  /// انتخابگر تگ چندگانه - **بدون محدودیت تعداد**.
+  Widget _buildMultiTagSelector({
+    required ShoppingListProvider provider,
+    required List<String> selectedTagIds,
+    required StateSetter setDialogState,
+    required ValueChanged<List<String>> onChanged,
+    required VoidCallback onRequestCreateTag,
+  }) {
+    final List<ShoppingListTag> tags = provider.allTags;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: Text(
+                _isFa
+                    ? 'تگ‌ها (هر تعداد بخواهید)'
+                    : 'Tags (as many as you want)',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+            TextButton.icon(
+              onPressed: onRequestCreateTag,
+              icon: const Icon(Icons.add, size: 16),
+              label: Text(_isFa ? 'تگ جدید' : 'New tag'),
+            ),
+          ],
+        ),
+        Text(
+          _isFa
+              ? '${selectedTagIds.length} تگ انتخاب شده (بدون محدودیت)'
+              : '${selectedTagIds.length} selected (no limit)',
+          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: <Widget>[
+            for (final ShoppingListTag tag in tags)
+              FilterChip(
+                label: Text(tag.displayName(provider.selectedLocale)),
+                selected: selectedTagIds.contains(tag.id),
+                onSelected: (bool isSelected) {
+                  final List<String> updated =
+                      List<String>.from(selectedTagIds);
+                  if (isSelected) {
+                    if (!updated.contains(tag.id)) updated.add(tag.id);
+                  } else {
+                    updated.remove(tag.id);
+                  }
+                  setDialogState(() => onChanged(updated));
+                },
+                avatar: CircleAvatar(
+                  backgroundColor: _hexToColor(tag.colorHex),
+                  child: Icon(
+                    tag.isCustom ? Icons.star : Icons.label,
+                    size: 14,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
   }
 
-  String _formatDate(DateTime date, String locale) {
-    if (locale == 'fa') {
-      // فرمت ساده فارسی
-      return '${date.month}/${date.day}';
-    } else {
-      return '${date.month}/${date.day}';
-    }
+  // ==================== ویرایش تگ‌های یک آیتم ====================
+
+  void _showEditTagsDialog(
+    BuildContext context,
+    ShoppingListProvider provider,
+    ShoppingListItem item,
+  ) {
+    List<String> selected = List<String>.from(item.tagIds);
+
+    showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) => StatefulBuilder(
+        builder: (BuildContext context, StateSetter setDialogState) =>
+            AlertDialog(
+          title: Text(_isFa ? 'تگ‌های «${item.name}»' : 'Tags for "${item.name}"'),
+          content: SingleChildScrollView(
+            child: _buildMultiTagSelector(
+              provider: provider,
+              selectedTagIds: selected,
+              setDialogState: setDialogState,
+              onChanged: (List<String> updated) => selected = updated,
+              onRequestCreateTag: () => _showCreateTagDialog(
+                context,
+                provider,
+                onCreated: (ShoppingListTag tag) {
+                  selected = <String>[...selected, tag.id];
+                  setDialogState(() {});
+                },
+              ),
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text(_isFa ? 'انصراف' : 'Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                await provider.updateItemTags(item.id!, selected);
+                if (!dialogContext.mounted) return;
+                Navigator.pop(dialogContext);
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(_isFa
+                        ? 'تگ‌ها ذخیره شد'
+                        : 'Tags saved'),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              },
+              child: Text(_isFa ? 'ذخیره' : 'Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ==================== ساخت تگ سفارشی جدید ====================
+
+  Future<void> _showCreateTagDialog(
+    BuildContext context,
+    ShoppingListProvider provider, {
+    ValueChanged<ShoppingListTag>? onCreated,
+  }) async {
+    final TextEditingController nameController = TextEditingController();
+    String selectedColor = CustomTagService.colorPalette.first;
+    String? validationError;
+
+    await showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) => StatefulBuilder(
+        builder: (BuildContext context, StateSetter setDialogState) =>
+            AlertDialog(
+          title: Text(_isFa ? 'ساخت تگ جدید' : 'Create New Tag'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                TextField(
+                  controller: nameController,
+                  onChanged: (_) => setDialogState(() => validationError = null),
+                  decoration: InputDecoration(
+                    labelText: _isFa ? 'نام تگ' : 'Tag name',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    errorText: validationError,
+                    prefixIcon: const Icon(Icons.label_outline),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  _isFa ? 'رنگ تگ' : 'Tag color',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: <Widget>[
+                    for (final String hex in CustomTagService.colorPalette)
+                      GestureDetector(
+                        onTap: () =>
+                            setDialogState(() => selectedColor = hex),
+                        child: Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            color: _hexToColor(hex),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: selectedColor == hex
+                                  ? Colors.black
+                                  : Colors.transparent,
+                              width: 3,
+                            ),
+                          ),
+                          child: selectedColor == hex
+                              ? const Icon(Icons.check,
+                                  size: 16, color: Colors.white)
+                              : null,
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                // پیش‌نمایش تگ با رنگ انتخاب‌شده.
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: _hexToColor(selectedColor).withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: <Widget>[
+                      CircleAvatar(
+                        backgroundColor: _hexToColor(selectedColor),
+                        radius: 12,
+                        child: const Icon(Icons.star,
+                            size: 12, color: Colors.white),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          nameController.text.trim().isEmpty
+                              ? (_isFa ? 'پیش‌نمایش تگ' : 'Tag preview')
+                              : nameController.text.trim(),
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text(_isFa ? 'انصراف' : 'Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final String name = nameController.text.trim();
+
+                // اعتبارسنجی: جلوگیری از نام خالی.
+                if (name.isEmpty) {
+                  setDialogState(() => validationError =
+                      _isFa ? 'نام تگ الزامی است' : 'Tag name is required');
+                  return;
+                }
+
+                final TagCreateResult result = await provider.createTag(
+                  nameFa: name,
+                  nameEn: name,
+                  colorHex: selectedColor,
+                );
+
+                if (!dialogContext.mounted) return;
+
+                // مدیریت معمولی نام تکراری: تگ موجود استفاده می‌شود.
+                if (result.status == TagCreateStatus.duplicate) {
+                  setDialogState(() => validationError = _isFa
+                      ? 'این نام تگ از قبل وجود دارد'
+                      : 'This tag name already exists');
+                  if (result.tag != null) onCreated?.call(result.tag!);
+                  return;
+                }
+
+                if (result.status != TagCreateStatus.created) {
+                  setDialogState(() => validationError = result.messageFa);
+                  return;
+                }
+
+                Navigator.pop(dialogContext);
+                if (result.tag != null) onCreated?.call(result.tag!);
+
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(_isFa
+                        ? 'تگ «${result.tag?.nameFa ?? name}» ذخیره شد'
+                        : 'Tag "${result.tag?.nameEn ?? name}" saved'),
+                    duration: const Duration(seconds: 2),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              },
+              child: Text(_isFa ? 'ساخت تگ' : 'Create'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

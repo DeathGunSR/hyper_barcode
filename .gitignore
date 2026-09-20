@@ -1,36 +1,34 @@
 ```
-# Flutter/Dart specific
-**/build/
-**/ios/Flutter/.last_build_id
-**/linux/flutter/ephemeral
-**/macos/flutter/ephemeral
-**/windows/flutter/ephemeral
-.dart_tool/
-.packages
-.pub-cache/
+# Build artifacts
+*.dart_tool/
+*.build/
+build/
+
+# Dependencies
 .pub/
-flutter_export_environment.sh
-generated_plugin_registrant.dart
+vendor/
 
-# IDE specific
-.idea/
-.vscode/
-*.swp
-*.swo
-*.tmp
-
-# Logs and temp files
+# Logs
 *.log
-**/logs
+**/logs/
 
 # Environment variables
 .env
 .env.local
-*.env.*
+.env.*
 
-# macOS
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
 .DS_Store
-
-# Windows
 Thumbs.db
+
+# Coverage
+coverage/
+htmlcov/
+*.coverage
 ```

@@ -336,22 +336,29 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _syncProductsFromWooCommerce() async {
-    if (_isSyncing) return;
+    if (_isSyncing) {
+      AppLogger().warning('Sync already in progress');
+      return;
+    }
     
     setState(() {
       _isSyncing = true;
     });
 
-    AppLogger().info('Starting product sync from WooCommerce');
+    AppLogger().info('Starting product sync from WooCommerce (background)');
+    
+    // Start sync as a background task without blocking UI
+    _runBackgroundSync();
+  }
 
+  Future<void> _runBackgroundSync() async {
     try {
       int totalProducts = 0;
       int processedCount = 0;
       int newCount = 0;
       int updatedCount = 0;
 
-      // Show progress dialog
-      _showProgressDialog('در حال بروزرسانی...', 0, 0);
+      AppLogger().info('Background sync started');
 
       // First, get total count
       final url = Uri.parse(
@@ -433,12 +440,6 @@ class _HomePageState extends State<HomePage> {
           ));
 
           processedCount++;
-          
-          // Update progress every 10 products
-          if (processedCount % 10 == 0) {
-            Navigator.pop(context); // Close previous dialog
-            _showProgressDialog('در حال بروزرسانی...', processedCount, totalProducts);
-          }
         }
 
         page++;
@@ -476,34 +477,58 @@ class _HomePageState extends State<HomePage> {
 
         AppLogger().info('Database updated: $newCount new, $updatedCount updated');
       }
-
-      Navigator.pop(context); // Close progress dialog
       
       setState(() {
         _lastSyncTime = DateTime.now();
+        _isSyncing = false;
       });
 
       await _loadLocalProducts();
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('همگام‌سازی کامل شد: $newCount محصول جدید، $updatedCount محصول بروزرسانی شد'),
-          duration: const Duration(seconds: 3),
-        ),
-      );
+      // Show success notification
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.green),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text('همگام‌سازی کامل شد: $newCount محصول جدید، $updatedCount محصول بروزرسانی شد'),
+                ),
+              ],
+            ),
+            duration: const Duration(seconds: 4),
+            backgroundColor: Colors.green.shade700,
+          ),
+        );
+      }
+
+      AppLogger().info('Sync completed successfully');
 
     } catch (e) {
       AppLogger().info('Error syncing products: $e');
-      if (mounted) {
-        Navigator.pop(context); // Close progress dialog
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('خطا در همگام‌سازی: $e')),
-        );
-      }
-    } finally {
       setState(() {
         _isSyncing = false;
       });
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error, color: Colors.red),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text('خطا در همگام‌سازی: ${e.toString()}'),
+                ),
+              ],
+            ),
+            duration: const Duration(seconds: 4),
+            backgroundColor: Colors.red.shade700,
+          ),
+        );
+      }
     }
   }
 
@@ -1630,7 +1655,13 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
             ListTile(
-              leading: const Icon(Icons.sync, color: Colors.blue),
+              leading: _isSyncing 
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.sync, color: Colors.blue),
               title: const Text('بروزرسانی پایگاه داده'),
               subtitle: Text(_isSyncing ? 'در حال پردازش...' : 'همگام‌سازی با سایت'),
               onTap: _isSyncing ? null : _syncProductsFromWooCommerce,

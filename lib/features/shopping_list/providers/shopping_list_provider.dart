@@ -44,6 +44,7 @@ class ShoppingListProvider extends ChangeNotifier {
   List<ShoppingListItem> get items => _items;
   List<ShoppingListItem> get filteredItems => _filteredItems;
   String? get username => _username;
+  String get currentUserName => _username ?? '';
   bool get isLoading => _isLoading;
   String? get error => _error;
   bool get errorIsNetwork => _errorIsNetwork;
@@ -154,12 +155,12 @@ class ShoppingListProvider extends ChangeNotifier {
   }
 
   /// حذف تگ سفارشی (تگ‌های پیش‌فرض قابل حذف نیستند).
-  Future<bool> deleteTag(String tagId) async {
+  Future<void> deleteTag(String tagId) async {
     final ShoppingListTag? tag = getTagById(tagId);
-    if (tag == null || !tag.isCustom) return false;
+    if (tag == null || !tag.isCustom) return;
 
     final bool ok = await CustomTagService.deleteCustomTag(tagId);
-    if (!ok) return false;
+    if (!ok) return;
 
     _customTags = await CustomTagService.loadCustomTags();
 
@@ -175,7 +176,6 @@ class ShoppingListProvider extends ChangeNotifier {
     if (_selectedTag == tagId) _selectedTag = null;
     await loadItems();
     _log.info('Custom tag deleted: $tagId', source: 'ShoppingListProvider');
-    return true;
   }
 
   // ==================== کاربر محلی ====================
@@ -213,6 +213,15 @@ class ShoppingListProvider extends ChangeNotifier {
       _setError('خطا در ذخیره اطلاعات کاربر', isNetwork: false);
       return false;
     }
+  }
+
+  /// تنظیم نام کاربری به صورت ساده (بدون شماره تلفن).
+  void setUserName(String username) {
+    if (username.trim().isEmpty) return;
+    _username = username.trim();
+    // ذخیره نامعتبر در دیتابیس با شماره خالی.
+    _dbService.saveLocalUser(_username!, '');
+    notifyListeners();
   }
 
   // ==================== بارگذاری آیتم‌ها ====================

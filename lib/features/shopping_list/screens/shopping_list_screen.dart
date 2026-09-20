@@ -120,6 +120,121 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     }
   }
 
+  // ==================== مدیریت تگ‌ها ====================
+
+  void _showTagManager(
+      BuildContext context, ShoppingListProvider provider) {
+    showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: Text(_isFa ? 'مدیریت تگ‌ها' : 'Manage Tags'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView(
+            shrinkWrap: true,
+            children: <Widget>[
+              for (final ShoppingListTag tag in provider.allTags)
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: _hexToColor(tag.colorHex),
+                    child: Icon(
+                      tag.isCustom ? Icons.star : Icons.label,
+                      color: Colors.white,
+                    ),
+                  ),
+                  title: Text(tag.displayName(provider.selectedLocale)),
+                  subtitle: Text(tag.isCustom
+                      ? (_isFa ? 'تگ سفارشی' : 'Custom tag')
+                      : (_isFa ? 'تگ پیش‌فرض' : 'Default tag')),
+                  trailing: tag.isCustom
+                      ? IconButton(
+                          icon: const Icon(Icons.delete),
+                          onPressed: () =>
+                              _confirmDeleteTag(context, provider, tag),
+                        )
+                      : null,
+                ),
+            ],
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(_isFa ? 'بستن' : 'Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showUserSettings(
+      BuildContext context, ShoppingListProvider provider) {
+    final TextEditingController nameController =
+        TextEditingController(text: provider.currentUserName);
+    showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: Text(_isFa ? 'تنظیمات کاربر' : 'User Settings'),
+        content: TextField(
+          controller: nameController,
+          decoration: InputDecoration(
+            labelText: _isFa ? 'نام شما' : 'Your name',
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(_isFa ? 'انصراف' : 'Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              provider.setUserName(nameController.text.trim());
+              Navigator.pop(dialogContext);
+            },
+            child: Text(_isFa ? 'ذخیره' : 'Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteTag(BuildContext context, ShoppingListProvider provider,
+      ShoppingListTag tag) {
+    showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: Text(_isFa ? 'حذف تگ' : 'Delete Tag'),
+        content: Text(_isFa
+            ? 'آیا مطمئن هستید که می‌خواهید تگ «${tag.nameFa}» را حذف کنید؟'
+            : 'Are you sure you want to delete the tag \"${tag.nameEn}\"?'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(_isFa ? 'انصراف' : 'Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              provider.deleteTag(tag.id);
+              Navigator.pop(dialogContext);
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: Text(_isFa ? 'حذف' : 'Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatDate(DateTime date, String locale) {
+    if (locale == 'fa') {
+      return '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}';
+    }
+    return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
+  }
+
   // ==================== نوار فیلتر وضعیت ====================
 
   Widget _buildFilterTabs(

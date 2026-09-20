@@ -106,14 +106,14 @@ class AppLogger extends ChangeNotifier {
     log(message, source: source, level: LogLevel.error, error: ex, stackTrace: stackTrace);
   }
 
-  void updateServerStatus(bool isConnected, {String error = ''}) {
+  void updateServerStatus(bool isConnected, {String errorMessage = ''}) {
     _isServerConnected = isConnected;
-    _lastServerError = error;
+    _lastServerError = errorMessage;
     if (isConnected) {
       _lastSyncTime = DateTime.now();
       info('Server connection successful', source: 'Network');
     } else {
-      error('Server connection failed: $error', source: 'Network');
+      error('Server connection failed: $errorMessage', source: 'Network');
     }
     notifyListeners();
   }

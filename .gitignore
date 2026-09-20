@@ -1,36 +1,35 @@
 ```
-# Dart/Flutter build outputs
-.dart_tool/
-.build/
-packages/
-*.g.dart
-*.freezed.dart
+# Dart/Flutter build artifacts
+**/build/
+**/bin/
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/generated_*.dart
 
-# Logs
+# Log files
 *.log
-**/logs
 
 # Environment variables
 .env
 .env.local
-.env.*
-!.env.example
+*.env.*
 
-# IDE specific files
-.idea/
+# IDE files
 .vscode/
+.idea/
 *.swp
 *.swo
+*.tmp
 
 # OS generated files
 .DS_Store
 Thumbs.db
 
-# Coverage
+# Coverage reports
 coverage/
+htmlcov/
 
-# Temporary files
-*.tmp
-**/temp/
-**/tmp/
+# Dependency cache
+pubspec.lock
 ```

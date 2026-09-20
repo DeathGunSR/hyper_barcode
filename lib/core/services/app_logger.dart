@@ -102,8 +102,8 @@ class AppLogger extends ChangeNotifier {
   void debug(String message, {String source = 'App'}) => log(message, source: source, level: LogLevel.debug);
   void info(String message, {String source = 'App'}) => log(message, source: source, level: LogLevel.info);
   void warning(String message, {String source = 'App'}) => log(message, source: source, level: LogLevel.warning);
-  void error(String message, {String source = 'App', dynamic error, StackTrace? stackTrace}) {
-    log(message, source: source, level: LogLevel.error, error: error, stackTrace: stackTrace);
+  void error(String message, {String source = 'App', dynamic ex, StackTrace? stackTrace}) {
+    log(message, source: source, level: LogLevel.error, error: ex, stackTrace: stackTrace);
   }
 
   void updateServerStatus(bool isConnected, {String error = ''}) {

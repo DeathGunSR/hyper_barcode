@@ -189,43 +189,44 @@ class _BarcodeScannerAppState extends State<BarcodeScannerApp> {
 
   @override
   Widget build(BuildContext context) {
-    return DebugOverlay(
-      child: MaterialApp(
-        title: _locale == 'fa' ? 'بارکد اسکنر' : 'Barcode Scanner',
-        debugShowCheckedModeBanner: false,
-        locale: Locale(_locale),
-        localizationsDelegates: [
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        supportedLocales: const [
-          Locale('fa'),
-          Locale('en'),
-        ],
+    return MaterialApp(
+      title: _locale == 'fa' ? 'بارکد اسکنر' : 'Barcode Scanner',
+      debugShowCheckedModeBanner: false,
+      locale: Locale(_locale),
+      localizationsDelegates: [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('fa'),
+        Locale('en'),
+      ],
+      themeMode: _themeMode,
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.blue,
+          brightness: Brightness.light,
+        ),
+        useMaterial3: true,
+        fontFamily: 'Vazirmatn',
+      ),
+      darkTheme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.blue,
+          brightness: Brightness.dark,
+        ),
+        useMaterial3: true,
+        fontFamily: 'Vazirmatn',
+      ),
+      builder: (context, child) {
+        return DebugOverlay(child: child!);
+      },
+      home: MenuPage(
+        currentLocale: _locale,
+        onLocaleChanged: updateLocale,
         themeMode: _themeMode,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: Colors.blue,
-            brightness: Brightness.light,
-          ),
-          useMaterial3: true,
-          fontFamily: 'Vazirmatn',
-        ),
-        darkTheme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: Colors.blue,
-            brightness: Brightness.dark,
-          ),
-          useMaterial3: true,
-          fontFamily: 'Vazirmatn',
-        ),
-        home: MenuPage(
-          currentLocale: _locale,
-          onLocaleChanged: updateLocale,
-          themeMode: _themeMode,
-          onThemeModeChanged: updateThemeMode,
-        ),
+        onThemeModeChanged: updateThemeMode,
       ),
     );
   }

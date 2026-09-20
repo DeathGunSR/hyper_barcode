@@ -219,6 +219,18 @@ class ShoppingListDatabaseService {
     );
   }
 
+  Future<ShoppingListItem?> getItem(int id) async {
+    final Database db = await database;
+    final List<Map<String, Object?>> maps = await db.query(
+      itemsTable,
+      where: 'id = ?',
+      whereArgs: <Object?>[id],
+      limit: 1,
+    );
+    if (maps.isEmpty) return null;
+    return ShoppingListItem.fromMap(Map<String, dynamic>.from(maps.first));
+  }
+
   Future<int> deleteItem(int id) async {
     final Database db = await database;
     return db.delete(itemsTable, where: 'id = ?', whereArgs: <Object?>[id]);

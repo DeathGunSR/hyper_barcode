@@ -38,28 +38,37 @@ class _DebugOverlayState extends State<DebugOverlay> {
                   top: MediaQuery.of(context).padding.top + 10,
                   right: 10,
                   left: 10,
-                  child: Container(
-                    constraints: const BoxConstraints(maxHeight: 300),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surface.withOpacity(0.95),
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.3),
-                          blurRadius: 8,
-                          offset: const Offset(0, 4),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: Container(
+                      constraints: const BoxConstraints(maxHeight: 320),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surface.withOpacity(0.96),
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _buildHeader(logger),
+                            Flexible(
+                              fit: FlexFit.loose,
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(maxHeight: 240),
+                                child: _buildLogList(logger),
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _buildHeader(logger),
-                        ConstrainedBox(
-                          constraints: const BoxConstraints(maxHeight: 240),
-                          child: _buildLogList(logger),
-                        ),
-                      ],
+                      ),
                     ),
                   ),
                 )
@@ -71,7 +80,7 @@ class _DebugOverlayState extends State<DebugOverlay> {
                 ),
               if (!_isVisible)
                 Positioned(
-                  bottom: 20,
+                  bottom: MediaQuery.of(context).padding.bottom + 20,
                   right: 20,
                   child: FloatingActionButton.small(
                     heroTag: 'debug_fab',
@@ -93,7 +102,7 @@ class _DebugOverlayState extends State<DebugOverlay> {
 
   Widget _buildHeader(AppLogger logger) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.primaryContainer,
         borderRadius: const BorderRadius.only(
@@ -101,70 +110,77 @@ class _DebugOverlayState extends State<DebugOverlay> {
           topRight: Radius.circular(12),
         ),
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.bug_report, size: 20),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Debug Logs - ${logger.logs.length} entries',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+          Row(
+            children: [
+              const Icon(Icons.bug_report, size: 18),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Logs (${logger.logs.length})',
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                ),
+              ),
+              _buildStatusIndicator(logger),
+              const SizedBox(width: 4),
+              InkWell(
+                onTap: () => setState(() => _isMinimized = true),
+                child: const Padding(
+                  padding: EdgeInsets.all(4),
+                  child: Icon(Icons.keyboard_arrow_up, size: 20),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _buildHeaderIcon(Icons.filter_list, onTap: () => _showFilterDialog(logger)),
+                _buildHeaderIcon(logger.isPaused ? Icons.play_arrow : Icons.pause,
+                    onTap: () => logger.togglePause()),
+                _buildHeaderIcon(
+                    logger.autoScroll ? Icons.vertical_align_bottom : Icons.lock,
+                    onTap: () => logger.toggleAutoScroll()),
+                _buildHeaderIcon(Icons.delete_outline, onTap: () => logger.clearLogs()),
+                _buildHeaderIcon(Icons.download, onTap: () => _exportLogs(logger)),
+              ],
             ),
-          ),
-          _buildStatusIndicator(logger),
-          const SizedBox(width: 8),
-          IconButton(
-            icon: const Icon(Icons.filter_list, size: 20),
-            onPressed: () => _showFilterDialog(logger),
-          ),
-          IconButton(
-            icon: Icon(logger.isPaused ? Icons.play_arrow : Icons.pause, size: 20),
-            onPressed: () => logger.togglePause(),
-          ),
-          IconButton(
-            icon: Icon(logger.autoScroll ? Icons.vertical_align_bottom : Icons.lock, size: 20),
-            onPressed: () => logger.toggleAutoScroll(),
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete_outline, size: 20),
-            onPressed: () => logger.clearLogs(),
-          ),
-          IconButton(
-            icon: const Icon(Icons.download, size: 20),
-            onPressed: () => _exportLogs(logger),
-          ),
-          IconButton(
-            icon: const Icon(Icons.keyboard_arrow_up, size: 20),
-            onPressed: () => setState(() => _isMinimized = true),
           ),
         ],
       ),
     );
   }
 
+  Widget _buildHeaderIcon(IconData icon, {required VoidCallback onTap}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        child: Icon(icon, size: 18),
+      ),
+    );
+  }
+
   Widget _buildStatusIndicator(AppLogger logger) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
       decoration: BoxDecoration(
         color: logger.isServerConnected ? Colors.green : Colors.red,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            logger.isServerConnected ? Icons.cloud_done : Icons.cloud_off,
-            size: 14,
-            color: Colors.white,
-          ),
-          const SizedBox(width: 4),
-          Text(
-            logger.isServerConnected ? 'Connected' : 'Disconnected',
-            style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
-          ),
-        ],
+      child: Icon(
+        logger.isServerConnected ? Icons.cloud_done : Icons.cloud_off,
+        size: 14,
+        color: Colors.white,
       ),
     );
   }
@@ -233,26 +249,70 @@ class _DebugOverlayState extends State<DebugOverlay> {
     return Card(
       margin: const EdgeInsets.only(bottom: 4),
       color: bgColor,
-      child: ListTile(
-        dense: true,
-        leading: Text(log.levelIcon, style: const TextStyle(fontSize: 16)),
-        title: Text(
-          '[${log.formattedTime}] ${log.message}',
-          style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
-          maxLines: 3,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: log.error != null
-            ? Text(
-                'Error: ${log.error}',
-                style: const TextStyle(fontSize: 10, color: Colors.red, fontFamily: 'monospace'),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              )
-            : null,
-        trailing: Text(
-          log.source,
-          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey),
+      elevation: 0.5,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 22,
+              child: Text(log.levelIcon, style: const TextStyle(fontSize: 14)),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        log.formattedTime,
+                        style: TextStyle(
+                          fontSize: 9,
+                          color: Colors.grey.shade600,
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          log.source,
+                          style: const TextStyle(
+                            fontSize: 9,
+                            color: Colors.grey,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    log.message,
+                    style: const TextStyle(fontSize: 11),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    softWrap: true,
+                  ),
+                  if (log.error != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      '! ${log.error}',
+                      style: const TextStyle(fontSize: 9, color: Colors.red),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      softWrap: true,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

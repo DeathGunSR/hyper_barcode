@@ -52,8 +52,18 @@ class ApiConfig {
   static String get shoppingSyncEndpoint =>
       '$wordpressBaseUrl/wp-json/bl/v1/sync';
 
+  /// اندپوینت تگ‌های چک‌لیست خرید (ساختار درختی).
+  /// اگر افزونه سرور این اندپوینت را هنوز پیاده‌سازی نکرده باشد،
+  /// تگ‌ها فقط به صورت محلی در SharedPreferences ذخیره می‌شوند و خطا
+  /// کل همگام‌سازی را متوقف نمی‌کنند (graceful fallback).
+  static String get shoppingTagsEndpoint =>
+      '$wordpressBaseUrl/wp-json/bl/v1/tags';
+
   static String shoppingItemEndpoint(int serverId) =>
       '$shoppingItemsEndpoint/$serverId';
+
+  static String shoppingTagEndpoint(int serverId) =>
+      '$shoppingTagsEndpoint/$serverId';
 
   static String shoppingUserByUsernameEndpoint(String username) =>
       '$shoppingUsersEndpoint?username=${Uri.encodeQueryComponent(username)}';

@@ -40,6 +40,11 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   Widget build(BuildContext context) {
     return Consumer<ShoppingListProvider>(
       builder: (BuildContext context, ShoppingListProvider provider, _) {
+        // T-08: اگر کاربر هنوز نام کاربری وارد نکرده، دیالوگ مودال اجباری نشان بده.
+        if (!provider.hasUser) {
+          _showMandatoryLoginDialog(context, provider);
+        }
+
         return Scaffold(
           appBar: AppBar(
             title: Text(
@@ -58,47 +63,149 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
               // مدیریت تگ‌های سفارشی
               IconButton(
                 icon: const Icon(Icons.local_offer),
-                onPressed: () => _showTagManager(context, provider),
-                tooltip: _isFa ? 'مدیریت تگ‌ها' : 'Manage tags',
+                onPressed: provider.hasUser
+                    ? () => _showTagManager(context, provider)
+                    : null,
               ),
               // تنظیمات کاربر
               IconButton(
                 icon: const Icon(Icons.person),
-                onPressed: () => _showUserSettings(context, provider),
-                tooltip: _isFa ? 'تنظیمات کاربر' : 'User settings',
+                onPressed: provider.hasUser
+                    ? () => _showUserSettings(context, provider)
+                    : null,
               ),
             ],
           ),
-          body: Column(
-            children: <Widget>[
-              _buildFilterTabs(context, provider),
-              _buildTagFilterBar(context, provider),
-              Expanded(child: _buildItemList(context, provider)),
-            ],
+          // T-10: SafeArea برای edge-to-edge — نوار ناوبری با دکمه‌های خانه/برگشت.
+          body: SafeArea(
+            top: false,
+            bottom: true,
+            left: false,
+            right: false,
+            child: Column(
+              children: <Widget>[
+                _buildFilterTabs(context, provider),
+                _buildTagFilterBar(context, provider),
+                Expanded(child: _buildItemList(context, provider)),
+              ],
+            ),
           ),
-          floatingActionButton: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: <Widget>[
-              FloatingActionButton.small(
-                heroTag: 'addCustomTagFab',
-                onPressed: () => _showCreateTagDialog(context, provider),
-                tooltip: _isFa ? 'ساخت تگ جدید' : 'Create new tag',
-                backgroundColor: Colors.purple,
-                child: const Icon(Icons.new_label, color: Colors.white),
-              ),
-              const SizedBox(height: 10),
-              FloatingActionButton.extended(
-                heroTag: 'addItemFab',
-                onPressed: () => _showAddItemDialog(context, provider),
-                icon: const Icon(Icons.add),
-                label: Text(_isFa ? 'افزودن آیتم' : 'Add Item'),
-              ),
-            ],
+          floatingActionButton: Padding(
+            // T-10: padding از پایین برای جلوگیری از قرار گرفتن زیر دکمه‌های سیستم.
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).padding.bottom + 8,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: <Widget>[
+                FloatingActionButton.small(
+                  heroTag: 'addCustomTagFab',
+                  onPressed: provider.hasUser
+                      ? () => _showCreateTagDialog(context, provider)
+                      : null,
+                  backgroundColor: Colors.purple,
+                  child: const Icon(Icons.new_label, color: Colors.white),
+                ),
+                const SizedBox(height: 10),
+                FloatingActionButton.extended(
+                  heroTag: 'addItemFab',
+                  onPressed: provider.hasUser
+                      ? () => _showAddItemDialog(context, provider)
+                      : null,
+                  icon: const Icon(Icons.add),
+                  label: Text(_isFa ? 'افزودن آیتم' : 'Add Item'),
+                ),
+              ],
+            ),
           ),
         );
       },
     );
+  }
+
+  /// T-08: دیالوگ ورود اجباری نام کاربری — قابل انصراف نیست.
+  ///
+  /// - با [WillPopScope] دکمه برگشت سیستم مسدود می‌شود.
+  /// - روی backdrop click بسته نمی‌شود (barrierDismissible=false).
+  /// - نام کاربری فقط باید خالی نباشد؛ پس از ذخیره دیالوگ بسته می‌شود.
+  bool _loginDialogShown = false;
+  void _showMandatoryLoginDialog(
+      BuildContext context, ShoppingListProvider provider) {
+    if (_loginDialogShown) return;
+    _loginDialogShown = true;
+    final TextEditingController nameController = TextEditingController();
+    String? error;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext dialogContext) {
+          return StatefulBuilder(
+            builder: (BuildContext ctx, StateSetter setD) {
+              return WillPopScope(
+                onWillPop: () async => false,
+                child: AlertDialog(
+                  title: Text(_isFa ? 'خوش آمدید' : 'Welcome'),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(_isFa
+                          ? 'لطفاً برای ادامه نام خود را وارد کنید (بدون نیاز به رمز عبور).'
+                          : 'Please enter your name to continue (no password required).'),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: nameController,
+                        autofocus: true,
+                        onChanged: (_) => setD(() => error = null),
+                        decoration: InputDecoration(
+                          labelText: _isFa ? 'نام کاربری' : 'Username',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          prefixIcon: const Icon(Icons.person_outline),
+                          errorText: error,
+                        ),
+                      ),
+                    ],
+                  ),
+                  actions: <Widget>[
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        final String username = nameController.text.trim();
+                        if (username.isEmpty) {
+                          setD(() =>
+                              error = _isFa ? 'نام الزامی است' : 'Name is required');
+                          return;
+                        }
+                        provider.setUserName(username);
+                        _loginDialogShown = false;
+                        Navigator.pop(dialogContext);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(_isFa
+                                  ? 'سلام «$username»، خوش آمدید!'
+                                  : 'Hi «$username», welcome!'),
+                              backgroundColor: Colors.green,
+                              duration: const Duration(seconds: 2),
+                            ),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.login),
+                      label: Text(_isFa ? 'ورود' : 'Enter'),
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      ).then((_) => _loginDialogShown = false);
+    });
   }
 
   /// شروع همگام‌سازی غیرمسدودکننده + نمایش نتیجه با SnackBar.
@@ -124,6 +231,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
 
   void _showTagManager(
       BuildContext context, ShoppingListProvider provider) {
+    final List<ShoppingListTag> allTags = provider.allTags;
     showDialog<void>(
       context: context,
       builder: (BuildContext dialogContext) => AlertDialog(
@@ -133,26 +241,53 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
           child: ListView(
             shrinkWrap: true,
             children: <Widget>[
-              for (final ShoppingListTag tag in provider.allTags)
-                ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: _hexToColor(tag.colorHex),
-                    child: Icon(
-                      tag.isCustom ? Icons.star : Icons.label,
-                      color: Colors.white,
+              // T-09: نمایش تگ‌ها بصورت indented بر اساس عمق درختی.
+              for (final ShoppingListTag tag in allTags)
+                Padding(
+                  padding: EdgeInsets.only(
+                    left: tag.depth(allTags) * 16.0,
+                    right: 0,
+                  ),
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: _hexToColor(tag.colorHex),
+                      child: const Icon(
+                        Icons.label,
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                    ),
+                    title: Text(tag.displayName(provider.selectedLocale)),
+                    subtitle: tag.parentId != null
+                        ? Text(
+                            _isFa
+                                ? 'زیرمجموعه: «${provider.getTagById(tag.parentId!)?.displayName(provider.selectedLocale) ?? '-'}»'
+                                : 'Child of: "${provider.getTagById(tag.parentId!)?.displayName(provider.selectedLocale) ?? '-'}"',
+                            style: const TextStyle(fontSize: 11),
+                          )
+                        : Text(
+                            _isFa ? 'سطح ریشه' : 'Root level',
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.delete),
+                      onPressed: () =>
+                          _confirmDeleteTag(context, provider, tag),
                     ),
                   ),
-                  title: Text(tag.displayName(provider.selectedLocale)),
-                  subtitle: Text(tag.isCustom
-                      ? (_isFa ? 'تگ سفارشی' : 'Custom tag')
-                      : (_isFa ? 'تگ پیش‌فرض' : 'Default tag')),
-                  trailing: tag.isCustom
-                      ? IconButton(
-                          icon: const Icon(Icons.delete),
-                          onPressed: () =>
-                              _confirmDeleteTag(context, provider, tag),
-                        )
-                      : null,
+                ),
+              if (allTags.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Center(
+                    child: Text(
+                      _isFa
+                          ? 'هنوز تگی ساخته نشده. از دکمه + بنفش پایین صفحه استفاده کنید.'
+                          : 'No tags yet. Use the purple + FAB at the bottom.',
+                      style: TextStyle(color: Colors.grey.shade600),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
                 ),
             ],
           ),
@@ -260,14 +395,14 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     );
   }
 
-  // ==================== نوار فیلتر تگ‌ها (شامل تگ‌های سفارشی) ====================
+  // ==================== نوار فیلتر تگ‌ها ====================
 
   Widget _buildTagFilterBar(
       BuildContext context, ShoppingListProvider provider) {
     final List<ShoppingListTag> tags = provider.allTags;
 
     return SizedBox(
-      height: 50,
+      height: 54,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -291,19 +426,20 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
 
           final ShoppingListTag tag = tags[index - 1];
           final bool selected = provider.selectedTag == tag.id;
+          // T-09: indent بصری برای نمایش سطح درختی تگ در فیلتر افقی.
+          // چون افقی است، از padding کوچک بالا استفاده می‌کنیم تا نشانه‌ای از عمق باشد.
+          final double visualTopIndent = tag.depth(tags) * 3.0;
 
           return Padding(
-            padding: const EdgeInsets.only(right: 8),
+            padding: EdgeInsets.only(right: 8, top: visualTopIndent),
             child: GestureDetector(
-              // نگه‌داشتن روی تگ سفارشی → حذف آن.
-              onLongPress: tag.isCustom
-                  ? () => _confirmDeleteTag(context, provider, tag)
-                  : null,
+              // نگه‌داشتن روی تگ → حذف آن.
+              onLongPress: () => _confirmDeleteTag(context, provider, tag),
               child: FilterChip(
                 avatar: CircleAvatar(
                   backgroundColor: _hexToColor(tag.colorHex),
-                  child: Icon(
-                    tag.isCustom ? Icons.star : Icons.label,
+                  child: const Icon(
+                    Icons.label,
                     size: 18,
                     color: Colors.white,
                   ),
@@ -345,6 +481,9 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     }
 
     return ListView.builder(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).padding.bottom + 16,
+      ),
       itemCount: provider.filteredItems.length,
       itemBuilder: (BuildContext context, int index) {
         final ShoppingListItem item = provider.filteredItems[index];
@@ -376,7 +515,37 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
         color: Colors.red,
         child: const Icon(Icons.delete, color: Colors.white),
       ),
-      onDismissed: (_) => provider.deleteItem(item.id!),
+      onDismissed: (_) {
+        // T-08: حذف آیتم همراه با SnackBar Undo (رویکرد استاندارد Flutter).
+        final ShoppingListItem removedItem = item.copyWith();
+        provider.deleteItem(item.id!);
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_isFa
+                ? 'آیتم «${removedItem.name}» حذف شد'
+                : 'Item "${removedItem.name}" deleted'),
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: _isFa ? 'بازگردانی' : 'UNDO',
+              textColor: Colors.yellowAccent,
+              onPressed: () {
+                // کاربر Undo زد → آیتم را دوباره اضافه کن.
+                provider.addItem(removedItem.copyWith(
+                  id: null,
+                  serverId: null,
+                  pendingSync: true,
+                  isPurchased: false,
+                  purchasedAt: null,
+                  clearPurchasedAt: true,
+                  createdAt: DateTime.now(),
+                ));
+              },
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      },
       child: Card(
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: Padding(
@@ -454,10 +623,10 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                         .togglePurchaseStatus(item.id!, value ?? false),
                   ),
                   InkWell(
-                    onTap: () => _showEditTagsDialog(context, provider, item),
+                    onTap: () => _showEditItemDialog(context, provider, item),
                     child: const Padding(
                       padding: EdgeInsets.all(4),
-                      child: Icon(Icons.edit, size: 16, color: Colors.grey),
+                      child: Icon(Icons.edit, size: 18, color: Colors.blueGrey),
                     ),
                   ),
                 ],
@@ -608,6 +777,130 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     );
   }
 
+  // ==================== ویرایش آیتم ====================
+
+  Future<void> _showEditItemDialog(
+    BuildContext context,
+    ShoppingListProvider provider,
+    ShoppingListItem item,
+  ) async {
+    final TextEditingController nameController =
+        TextEditingController(text: item.name);
+    final TextEditingController barcodeController =
+        TextEditingController(text: item.barcode);
+
+    await showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) => StatefulBuilder(
+        builder: (BuildContext context, StateSetter setDialogState) =>
+            AlertDialog(
+          title: Text(_isFa ? 'ویرایش آیتم' : 'Edit Item'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                TextField(
+                  controller: nameController,
+                  decoration: InputDecoration(
+                    labelText: _isFa ? 'نام کالا' : 'Item name',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: barcodeController,
+                  decoration: InputDecoration(
+                    labelText: _isFa ? 'بارکد (اختیاری)' : 'Barcode (optional)',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    prefixIcon: const Icon(Icons.qr_code),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                InkWell(
+                  onTap: () {
+                    Navigator.pop(dialogContext);
+                    _showEditTagsDialog(context, provider, item);
+                  },
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 14),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.grey.shade400),
+                    ),
+                    child: Row(
+                      children: <Widget>[
+                        const Icon(Icons.label_outline, size: 20),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            _isFa
+                                ? 'مدیریت تگ‌های این آیتم'
+                                : 'Manage tags for this item',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey.shade800,
+                            ),
+                          ),
+                        ),
+                        const Icon(Icons.chevron_right, size: 18),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text(_isFa ? 'انصراف' : 'Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (nameController.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(_isFa
+                          ? 'لطفاً نام کالا را وارد کنید'
+                          : 'Please enter item name'),
+                    ),
+                  );
+                  return;
+                }
+
+                await provider.updateItemDetails(
+                  item.id!,
+                  name: nameController.text.trim(),
+                  barcode: barcodeController.text.trim(),
+                );
+                if (!dialogContext.mounted) return;
+                Navigator.pop(dialogContext);
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(_isFa
+                        ? 'آیتم بروزرسانی شد (در حال ارسال به سرور)'
+                        : 'Item updated (uploading in background)'),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              },
+              child: Text(_isFa ? 'ذخیره' : 'Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// انتخابگر تگ چندگانه - **بدون محدودیت تعداد**.
   Widget _buildMultiTagSelector({
     required ShoppingListProvider provider,
@@ -644,31 +937,47 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
               : '${selectedTagIds.length} selected (no limit)',
           style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
         ),
+        if (tags.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Text(
+              _isFa
+                  ? 'هنوز تگی وجود ندارد. از دکمه «تگ جدید» استفاده کنید.'
+                  : 'No tags yet. Use the "New tag" button.',
+              style: TextStyle(color: Colors.grey.shade600, fontStyle: FontStyle.italic),
+            ),
+          ),
         const SizedBox(height: 8),
         Wrap(
           spacing: 8,
           runSpacing: 8,
           children: <Widget>[
+            // T-09: نمایش Wrap بصورت indent نشانه‌دار از طریق padding چپ.
             for (final ShoppingListTag tag in tags)
-              FilterChip(
-                label: Text(tag.displayName(provider.selectedLocale)),
-                selected: selectedTagIds.contains(tag.id),
-                onSelected: (bool isSelected) {
-                  final List<String> updated =
-                      List<String>.from(selectedTagIds);
-                  if (isSelected) {
-                    if (!updated.contains(tag.id)) updated.add(tag.id);
-                  } else {
-                    updated.remove(tag.id);
-                  }
-                  setDialogState(() => onChanged(updated));
-                },
-                avatar: CircleAvatar(
-                  backgroundColor: _hexToColor(tag.colorHex),
-                  child: Icon(
-                    tag.isCustom ? Icons.star : Icons.label,
-                    size: 14,
-                    color: Colors.white,
+              Padding(
+                padding: EdgeInsets.only(
+                  left: tag.depth(tags) * 10.0,
+                ),
+                child: FilterChip(
+                  label: Text(tag.displayName(provider.selectedLocale)),
+                  selected: selectedTagIds.contains(tag.id),
+                  onSelected: (bool isSelected) {
+                    final List<String> updated =
+                        List<String>.from(selectedTagIds);
+                    if (isSelected) {
+                      if (!updated.contains(tag.id)) updated.add(tag.id);
+                    } else {
+                      updated.remove(tag.id);
+                    }
+                    setDialogState(() => onChanged(updated));
+                  },
+                  avatar: CircleAvatar(
+                    backgroundColor: _hexToColor(tag.colorHex),
+                    child: const Icon(
+                      Icons.label,
+                      size: 14,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
               ),
@@ -746,153 +1055,229 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   }) async {
     final TextEditingController nameController = TextEditingController();
     String selectedColor = CustomTagService.colorPalette.first;
+    String? selectedParentId;
     String? validationError;
 
     await showDialog<void>(
       context: context,
       builder: (BuildContext dialogContext) => StatefulBuilder(
-        builder: (BuildContext context, StateSetter setDialogState) =>
-            AlertDialog(
-          title: Text(_isFa ? 'ساخت تگ جدید' : 'Create New Tag'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                TextField(
-                  controller: nameController,
-                  onChanged: (_) => setDialogState(() => validationError = null),
-                  decoration: InputDecoration(
-                    labelText: _isFa ? 'نام تگ' : 'Tag name',
-                    border: OutlineInputBorder(
+        builder: (BuildContext context, StateSetter setDialogState) {
+          final List<ShoppingListTag> tags = provider.allTags;
+          return AlertDialog(
+            title: Text(_isFa ? 'ساخت تگ جدید' : 'Create New Tag'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  TextField(
+                    controller: nameController,
+                    onChanged: (_) => setDialogState(() => validationError = null),
+                    decoration: InputDecoration(
+                      labelText: _isFa ? 'نام تگ' : 'Tag name',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      errorText: validationError,
+                      prefixIcon: const Icon(Icons.label_outline),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    _isFa ? 'تگ والد (ساختار درختی)' : 'Parent Tag (Tree)',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey.shade400),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    errorText: validationError,
-                    prefixIcon: const Icon(Icons.label_outline),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  _isFa ? 'رنگ تگ' : 'Tag color',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: <Widget>[
-                    for (final String hex in CustomTagService.colorPalette)
-                      GestureDetector(
-                        onTap: () =>
-                            setDialogState(() => selectedColor = hex),
-                        child: Container(
-                          width: 32,
-                          height: 32,
-                          decoration: BoxDecoration(
-                            color: _hexToColor(hex),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: selectedColor == hex
-                                  ? Colors.black
-                                  : Colors.transparent,
-                              width: 3,
-                            ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String?>(
+                        value: selectedParentId,
+                        isExpanded: true,
+                        hint: Text(_isFa ? 'بدون والد (سطح ریشه)' : 'No parent (Root)'),
+                        items: <DropdownMenuItem<String?>>[
+                          DropdownMenuItem<String?>(
+                            value: null,
+                            child: Text(_isFa ? '— سطح ریشه —' : '— Root level —'),
                           ),
-                          child: selectedColor == hex
-                              ? const Icon(Icons.check,
-                                  size: 16, color: Colors.white)
-                              : null,
-                        ),
+                          for (final ShoppingListTag t in tags)
+                            DropdownMenuItem<String?>(
+                              value: t.id,
+                              child: Padding(
+                                padding: EdgeInsets.only(
+                                  left: t.depth(tags) * 16.0,
+                                  right: _isFa ? t.depth(tags) * 16.0 : 0,
+                                ),
+                                child: Row(
+                                  children: <Widget>[
+                                    CircleAvatar(
+                                      radius: 9,
+                                      backgroundColor: _hexToColor(t.colorHex),
+                                      child: const Icon(
+                                        Icons.label,
+                                        size: 10,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        t.displayName(provider.selectedLocale),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                        ],
+                        onChanged: (String? newValue) {
+                          setDialogState(() => selectedParentId = newValue);
+                        },
                       ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                // پیش‌نمایش تگ با رنگ انتخاب‌شده.
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: _hexToColor(selectedColor).withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(8),
+                    ),
                   ),
-                  child: Row(
+                  const SizedBox(height: 16),
+                  Text(
+                    _isFa ? 'رنگ تگ' : 'Tag color',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
                     children: <Widget>[
-                      CircleAvatar(
-                        backgroundColor: _hexToColor(selectedColor),
-                        radius: 12,
-                        child: const Icon(Icons.star,
-                            size: 12, color: Colors.white),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          nameController.text.trim().isEmpty
-                              ? (_isFa ? 'پیش‌نمایش تگ' : 'Tag preview')
-                              : nameController.text.trim(),
-                          style: const TextStyle(fontSize: 12),
+                      for (final String hex in CustomTagService.colorPalette)
+                        GestureDetector(
+                          onTap: () =>
+                              setDialogState(() => selectedColor = hex),
+                          child: Container(
+                            width: 32,
+                            height: 32,
+                            decoration: BoxDecoration(
+                              color: _hexToColor(hex),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: selectedColor == hex
+                                    ? Colors.black
+                                    : Colors.transparent,
+                                width: 3,
+                              ),
+                            ),
+                            child: selectedColor == hex
+                                ? const Icon(Icons.check,
+                                    size: 16, color: Colors.white)
+                                : null,
+                          ),
                         ),
-                      ),
                     ],
                   ),
-                ),
-              ],
-            ),
-          ),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: Text(_isFa ? 'انصراف' : 'Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                final String name = nameController.text.trim();
-
-                // اعتبارسنجی: جلوگیری از نام خالی.
-                if (name.isEmpty) {
-                  setDialogState(() => validationError =
-                      _isFa ? 'نام تگ الزامی است' : 'Tag name is required');
-                  return;
-                }
-
-                final TagCreateResult result = await provider.createTag(
-                  nameFa: name,
-                  nameEn: name,
-                  colorHex: selectedColor,
-                );
-
-                if (!dialogContext.mounted) return;
-
-                // مدیریت معمولی نام تکراری: تگ موجود استفاده می‌شود.
-                if (result.status == TagCreateStatus.duplicate) {
-                  setDialogState(() => validationError = _isFa
-                      ? 'این نام تگ از قبل وجود دارد'
-                      : 'This tag name already exists');
-                  if (result.tag != null) onCreated?.call(result.tag!);
-                  return;
-                }
-
-                if (result.status != TagCreateStatus.created) {
-                  setDialogState(() => validationError = result.messageFa);
-                  return;
-                }
-
-                Navigator.pop(dialogContext);
-                if (result.tag != null) onCreated?.call(result.tag!);
-
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(_isFa
-                        ? 'تگ «${result.tag?.nameFa ?? name}» ذخیره شد'
-                        : 'Tag "${result.tag?.nameEn ?? name}" saved'),
-                    duration: const Duration(seconds: 2),
-                    backgroundColor: Colors.green,
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: _hexToColor(selectedColor).withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: <Widget>[
+                        CircleAvatar(
+                          backgroundColor: _hexToColor(selectedColor),
+                          radius: 12,
+                          child: const Icon(Icons.star,
+                              size: 12, color: Colors.white),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Text(
+                                nameController.text.trim().isEmpty
+                                    ? (_isFa ? 'پیش‌نمایش تگ' : 'Tag preview')
+                                    : nameController.text.trim(),
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              if (selectedParentId != null)
+                                Text(
+                                  _isFa
+                                      ? 'زیرمجموعه: ${provider.getTagById(selectedParentId!)?.displayName(provider.selectedLocale) ?? '—'}'
+                                      : 'Child of: ${provider.getTagById(selectedParentId!)?.displayName(provider.selectedLocale) ?? '—'}',
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                );
-              },
-              child: Text(_isFa ? 'ساخت تگ' : 'Create'),
+                ],
+              ),
             ),
-          ],
-        ),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: Text(_isFa ? 'انصراف' : 'Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  final String name = nameController.text.trim();
+
+                  if (name.isEmpty) {
+                    setDialogState(() => validationError =
+                        _isFa ? 'نام تگ الزامی است' : 'Tag name is required');
+                    return;
+                  }
+
+                  final TagCreateResult result = await provider.createTag(
+                    nameFa: name,
+                    nameEn: name,
+                    colorHex: selectedColor,
+                    parentId: selectedParentId,
+                  );
+
+                  if (!dialogContext.mounted) return;
+
+                  if (result.status == TagCreateStatus.duplicate) {
+                    setDialogState(() => validationError = _isFa
+                        ? 'این نام تگ از قبل وجود دارد'
+                        : 'This tag name already exists');
+                    if (result.tag != null) onCreated?.call(result.tag!);
+                    return;
+                  }
+
+                  if (result.status != TagCreateStatus.created) {
+                    setDialogState(() => validationError = result.messageFa);
+                    return;
+                  }
+
+                  Navigator.pop(dialogContext);
+                  if (result.tag != null) onCreated?.call(result.tag!);
+
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(_isFa
+                          ? 'تگ «${result.tag?.nameFa ?? name}» ذخیره شد'
+                          : 'Tag "${result.tag?.nameEn ?? name}" saved'),
+                      duration: const Duration(seconds: 2),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                },
+                child: Text(_isFa ? 'ساخت تگ' : 'Create'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

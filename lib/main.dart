@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -21,6 +21,7 @@ import 'features/shopping_list/providers/shopping_list_provider.dart';
 import 'features/shopping_list/models/shopping_list_item.dart';
 import 'core/services/app_logger.dart';
 import 'core/widgets/debug_overlay.dart';
+import 'dart:math' as math;
 
 // Global font for Persian support in PDF
 pw.Font? _persianFont;
@@ -116,6 +117,8 @@ class LabelConfig {
   double marginRightMm;
   double gapHorizontalMm;
   double gapVerticalMm;
+  bool showBarcodeText;
+  bool forceShowCoverPriceOnDiscount;
 
   LabelConfig({
     this.labelsPerRow = 3,
@@ -128,12 +131,102 @@ class LabelConfig {
     this.marginRightMm = 5,
     this.gapHorizontalMm = 5,
     this.gapVerticalMm = 5,
+    this.showBarcodeText = true,
+    this.forceShowCoverPriceOnDiscount = true,
   });
 
   int get labelsPerPage => labelsPerRow * labelsPerColumn;
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'labelsPerRow': labelsPerRow,
+        'labelsPerColumn': labelsPerColumn,
+        'labelWidthMm': labelWidthMm,
+        'labelHeightMm': labelHeightMm,
+        'marginTopMm': marginTopMm,
+        'marginBottomMm': marginBottomMm,
+        'marginLeftMm': marginLeftMm,
+        'marginRightMm': marginRightMm,
+        'gapHorizontalMm': gapHorizontalMm,
+        'gapVerticalMm': gapVerticalMm,
+        'showBarcodeText': showBarcodeText,
+        'forceShowCoverPriceOnDiscount': forceShowCoverPriceOnDiscount,
+      };
+
+  factory LabelConfig.fromJson(Map<String, dynamic> json) => LabelConfig(
+        labelsPerRow: asIntFromJson(json['labelsPerRow'], 3),
+        labelsPerColumn: asIntFromJson(json['labelsPerColumn'], 5),
+        labelWidthMm: asDoubleFromJson(json['labelWidthMm'], 70),
+        labelHeightMm: asDoubleFromJson(json['labelHeightMm'], 42),
+        marginTopMm: asDoubleFromJson(json['marginTopMm'], 10),
+        marginBottomMm: asDoubleFromJson(json['marginBottomMm'], 10),
+        marginLeftMm: asDoubleFromJson(json['marginLeftMm'], 5),
+        marginRightMm: asDoubleFromJson(json['marginRightMm'], 5),
+        gapHorizontalMm: asDoubleFromJson(json['gapHorizontalMm'], 5),
+        gapVerticalMm: asDoubleFromJson(json['gapVerticalMm'], 5),
+        showBarcodeText: json['showBarcodeText'] == null ? true : asBoolFromJson(json['showBarcodeText']),
+        forceShowCoverPriceOnDiscount: json['forceShowCoverPriceOnDiscount'] == null
+            ? true
+            : asBoolFromJson(json['forceShowCoverPriceOnDiscount']),
+      );
+}
+
+int asIntFromJson(dynamic value, int fallback) {
+  if (value == null) return fallback;
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  final int? parsed = int.tryParse(value.toString());
+  return parsed ?? fallback;
+}
+
+double asDoubleFromJson(dynamic value, double fallback) {
+  if (value == null) return fallback;
+  if (value is double) return value;
+  if (value is num) return value.toDouble();
+  final double? parsed = double.tryParse(value.toString());
+  return parsed ?? fallback;
+}
+
+bool asBoolFromJson(dynamic value) {
+  if (value is bool) return value;
+  if (value is int) return value != 0;
+  final String s = value.toString().trim().toLowerCase();
+  return s == 'true' || s == '1' || s == 'yes' || s == 'on';
+}
+
+const String _kLabelConfigPrefsKey = 'pdf_label_template_v1';
+
+Future<LabelConfig> loadLabelConfig() async {
+  try {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final String? raw = prefs.getString(_kLabelConfigPrefsKey);
+    if (raw == null || raw.isEmpty) return LabelConfig();
+    final Map<String, dynamic> decoded =
+        Map<String, dynamic>.from(json.decode(raw) as Map);
+    return LabelConfig.fromJson(decoded);
+  } catch (_) {
+    return LabelConfig();
+  }
+}
+
+Future<bool> saveLabelConfig(LabelConfig config) async {
+  try {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    return prefs.setString(_kLabelConfigPrefsKey, json.encode(config.toJson()));
+  } catch (_) {
+    return false;
+  }
 }
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    systemNavigationBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.dark,
+    systemNavigationBarIconBrightness: Brightness.dark,
+    statusBarBrightness: Brightness.light,
+  ));
   runApp(
     MultiProvider(
       providers: [
@@ -257,7 +350,12 @@ class _HomePageState extends State<HomePage> {
   List<LocalProduct> _localProducts = [];
   bool _isSyncing = false;
   DateTime? _lastSyncTime;
-  
+
+  int _syncCurrentPage = 0;
+  int _syncEstimatedPages = 1;
+  int _syncFetchedProducts = 0;
+  final List<int> _syncFailedPages = <int>[];
+
   // Label configuration
   LabelConfig _labelConfig = LabelConfig();
   bool _showUniqueOnly = true;
@@ -273,6 +371,24 @@ class _HomePageState extends State<HomePage> {
     AppLogger().info('App initialized');
     _initializeDatabase();
     _loadStoragePath();
+    _initLabelConfig();
+  }
+
+  Future<void> _initLabelConfig() async {
+    final LabelConfig stored = await loadLabelConfig();
+    if (mounted) {
+      setState(() {
+        _labelConfig = stored;
+      });
+    }
+  }
+
+  double get _syncProgressPercent {
+    if (_syncEstimatedPages <= 0) return 0;
+    final double p = _syncCurrentPage / _syncEstimatedPages;
+    if (p < 0) return 0;
+    if (p > 1) return 1;
+    return p;
   }
 
   @override
@@ -288,133 +404,181 @@ class _HomePageState extends State<HomePage> {
           PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'settings') {
-                // Show settings
-              } else if (value == 'about') {
-                // Show about
+                _showPdfTemplateSettings();
               }
             },
             itemBuilder: (context) => [
               const PopupMenuItem(value: 'settings', child: Text('تنظیمات')),
-              const PopupMenuItem(value: 'about', child: Text('درباره')),
             ],
           ),
         ],
       ),
-      body: Column(
-        children: [
-          // Sync status bar
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            color: Colors.blue.shade50,
-            child: Row(
-              children: [
-                Icon(
-                  _isSyncing ? Icons.sync : Icons.cloud_done,
-                  size: 20,
-                  color: _isSyncing ? Colors.orange : Colors.green,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _isSyncing
-                        ? 'در حال همگام‌سازی...'
-                        : (_lastSyncTime != null
-                            ? 'آخرین همگام‌سازی: ${_formatDateTime(_lastSyncTime!)}'
-                            : 'بدون همگام‌سازی'),
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: _isSyncing ? Colors.orange : Colors.grey.shade700,
-                    ),
+      body: SafeArea(
+        top: false,
+        bottom: true,
+        left: false,
+        right: false,
+        child: Column(
+          children: [
+            // Sync status bar
+            Container(
+              padding: EdgeInsets.only(
+                top: MediaQuery.of(context).padding.top + 8,
+                left: 16,
+                right: 16,
+                bottom: 12,
+              ),
+              color: Colors.blue.shade50,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        _isSyncing ? Icons.sync : Icons.cloud_done,
+                        size: 20,
+                        color: _isSyncing ? Colors.orange : Colors.green,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _isSyncing
+                              ? 'در حال همگام‌سازی... صفحه $_syncCurrentPage از ~$_syncEstimatedPages | $_syncFetchedProducts محصول'
+                              : (_lastSyncTime != null
+                                  ? 'آخرین همگام‌سازی: ${_formatDateTime(_lastSyncTime!)}'
+                                  : 'بدون همگام‌سازی'),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: _isSyncing ? Colors.orange : Colors.grey.shade700,
+                          ),
+                        ),
+                      ),
+                      if (!_isSyncing)
+                        TextButton.icon(
+                          icon: const Icon(Icons.refresh, size: 18),
+                          label: const Text('همگام‌سازی'),
+                          onPressed: _syncProductsFromWooCommerce,
+                          style: TextButton.styleFrom(
+                            minimumSize: const Size(0, 32),
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                          ),
+                        ),
+                    ],
                   ),
-                ),
-                if (!_isSyncing)
-                  TextButton.icon(
-                    icon: const Icon(Icons.refresh, size: 18),
-                    label: const Text('همگام‌سازی'),
-                    onPressed: _syncProductsFromWooCommerce,
-                    style: TextButton.styleFrom(
-                      minimumSize: const Size(0, 32),
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                  if (_isSyncing) ...[
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: LinearProgressIndicator(
+                        value: _syncProgressPercent > 0 ? _syncProgressPercent : null,
+                        minHeight: 5,
+                        backgroundColor: Colors.blue.shade100,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.blue.shade600),
+                      ),
                     ),
-                  ),
-              ],
-            ),
-          ),
-          
-          // Main content
-          Expanded(
-            child: MobileScanner(
-              onDetect: (capture) {
-                final List<Barcode> barcodes = capture.barcodes;
-                for (final barcode in barcodes) {
-                  if (barcode.rawValue != null) {
-                    _addBarcode(barcode.rawValue!);
-                  }
-                }
-              },
-              controller: MobileScannerController(
-                facing: CameraFacing.back,
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        const Spacer(),
+                        Text(
+                          '${(_syncProgressPercent * 100).toInt()}%',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  if (_syncFailedPages.isNotEmpty && !_isSyncing)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text(
+                        'صفحات دریافت‌نشده: ${_syncFailedPages.join(", ")}',
+                        style: const TextStyle(fontSize: 11, color: Colors.redAccent),
+                      ),
+                    ),
+                ],
               ),
             ),
-          ),
-          
-          // Bottom controls
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Theme.of(context).cardColor,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 8,
-                  offset: const Offset(0, -2),
+            
+            // Main content
+            Expanded(
+              child: MobileScanner(
+                onDetect: (capture) {
+                  final List<Barcode> barcodes = capture.barcodes;
+                  for (final barcode in barcodes) {
+                    if (barcode.rawValue != null) {
+                      _addBarcode(barcode.rawValue!);
+                    }
+                  }
+                },
+                controller: MobileScannerController(
+                  facing: CameraFacing.back,
                 ),
-              ],
+              ),
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        widget.currentLocale == 'fa'
-                            ? '${_barcodes.length} بارکد اسکن شده'
-                            : '${_barcodes.length} barcodes scanned',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
+            
+            // Bottom controls
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).cardColor,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 8,
+                    offset: const Offset(0, -2),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          widget.currentLocale == 'fa'
+                              ? '${_barcodes.length} بارکد اسکن شده'
+                              : '${_barcodes.length} barcodes scanned',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
                       ),
-                    ),
-                    TextButton.icon(
-                      icon: const Icon(Icons.delete_outline),
-                      label: Text(widget.currentLocale == 'fa' ? 'پاک کردن' : 'Clear'),
-                      onPressed: _barcodes.isEmpty ? null : _clearBarcodes,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        icon: const Icon(Icons.info_outline),
-                        label: Text(widget.currentLocale == 'fa' ? 'دریافت اطلاعات' : 'Fetch Info'),
-                        onPressed: _barcodes.isEmpty ? null : _fetchProductInfo,
+                      TextButton.icon(
+                        icon: const Icon(Icons.delete_outline),
+                        label: Text(widget.currentLocale == 'fa' ? 'پاک کردن' : 'Clear'),
+                        onPressed: _barcodes.isEmpty ? null : _clearBarcodes,
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        icon: const Icon(Icons.print),
-                        label: Text(widget.currentLocale == 'fa' ? 'چاپ لیبل' : 'Print Labels'),
-                        onPressed: _barcodes.isEmpty ? null : _printLabels,
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.info_outline),
+                          label: Text(widget.currentLocale == 'fa' ? 'دریافت اطلاعات' : 'Fetch Info'),
+                          onPressed: _barcodes.isEmpty ? null : _fetchProductInfo,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-              ],
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.print),
+                          label: Text(widget.currentLocale == 'fa' ? 'چاپ لیبل' : 'Print Labels'),
+                          onPressed: _barcodes.isEmpty ? null : _printLabels,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -485,15 +649,90 @@ class _HomePageState extends State<HomePage> {
       AppLogger().warning('Sync already in progress');
       return;
     }
-    
+
     setState(() {
       _isSyncing = true;
+      _syncCurrentPage = 0;
+      _syncEstimatedPages = 1;
+      _syncFetchedProducts = 0;
+      _syncFailedPages.clear();
     });
 
     AppLogger().info('Starting product sync from WooCommerce (background)');
-    
+
     // Start sync as a background task without blocking UI
     _runBackgroundSync();
+  }
+
+  Future<http.Response> _fetchWooPageWithRetry(int page, int perPage, {int maxAttempts = 5, String? fields}) async {
+    http.Client client = http.Client();
+    Object? lastError;
+    final String fieldsParam = fields ?? 'id,sku,regular_price,sale_price,name,meta_data,stock_quantity';
+    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        final url = Uri.parse(
+          '$_wooCommerceUrl/wp-json/wc/v3/products?per_page=$perPage&page=$page&consumer_key=$_consumerKey&consumer_secret=$_consumerSecret&_fields=$fieldsParam',
+        );
+        final response = await client.get(url, headers: {
+          'Connection': 'keep-alive',
+          'Accept-Encoding': 'gzip, deflate',
+        }).timeout(Duration(seconds: attempt == 1 ? 45 : 60 + attempt * 15));
+        if (response.statusCode == 200 || response.statusCode >= 500) {
+          client.close();
+          return response;
+        }
+        if (attempt >= maxAttempts) {
+          client.close();
+          return response;
+        }
+        lastError = Exception('HTTP ${response.statusCode}');
+      } on TimeoutException catch (e) {
+        lastError = e;
+        AppLogger().warning('Page $page timeout (attempt $attempt/$maxAttempts)');
+      } on SocketException catch (e) {
+        lastError = e;
+        final String msg = e.toString().toLowerCase();
+        final bool connectionAbort = msg.contains('connection abort') ||
+            msg.contains('connection reset') ||
+            msg.contains('connection refused') ||
+            msg.contains('no route to host') ||
+            msg.contains('timed out') ||
+            msg.contains('software caused');
+        if (connectionAbort) {
+          AppLogger().warning('Page $page SocketException abort (attempt $attempt/$maxAttempts): ${e.message}');
+        } else {
+          AppLogger().warning('Page $page network error (attempt $attempt/$maxAttempts): ${e.message}');
+        }
+      } on http.ClientException catch (e) {
+        lastError = e;
+        final String msg = e.message.toLowerCase();
+        final bool retryable = msg.contains('abort') ||
+            msg.contains('reset') ||
+            msg.contains('timed out') ||
+            msg.contains('timeout') ||
+            msg.contains('closed before full body') ||
+            msg.contains('software caused') ||
+            msg.contains('connection');
+        AppLogger().warning(
+            'Page $page ClientException (attempt $attempt/$maxAttempts): ${e.message}');
+        if (!retryable && attempt >= maxAttempts) {
+          break;
+        }
+      } catch (e) {
+        lastError = e;
+        AppLogger().warning('Page $page error (attempt $attempt/$maxAttempts): $e');
+      }
+      if (attempt < maxAttempts) {
+        final int delayMs = 1500 * math.pow(2, attempt - 1).toInt() + math.Random().nextInt(1000);
+        await Future.delayed(Duration(milliseconds: delayMs));
+        if (attempt >= 2) {
+          client.close();
+          client = http.Client();
+        }
+      }
+    }
+    client.close();
+    throw lastError ?? Exception('Unknown error fetching page $page');
   }
 
   Future<void> _runBackgroundSync() async {
@@ -508,37 +747,93 @@ class _HomePageState extends State<HomePage> {
       // Pre-allocate list with estimated capacity to reduce reallocations
       List<LocalProduct> fetchedProducts = List<LocalProduct>.empty(growable: true);
       int page = 1;
-      const int perPage = 100;
+      const int perPage = 50;
       bool hasMorePages = true;
+      bool haveEstimated = false;
+
+      // Bootstrap with an optimistic guess for progress
+      setState(() {
+        _syncEstimatedPages = 30;
+      });
 
       while (hasMorePages) {
         AppLogger().info('Fetching products page $page');
-        
-        final url = Uri.parse(
-          '$_wooCommerceUrl/wp-json/wc/v3/products?per_page=$perPage&page=$page&consumer_key=$_consumerKey&consumer_secret=$_consumerSecret&_fields=id,sku,regular_price,sale_price,name,meta_data,stock_quantity',
-        );
 
-        final response = await http.get(url);
+        setState(() {
+          _syncCurrentPage = page;
+          if (!haveEstimated) {
+            _syncEstimatedPages = math.max(_syncEstimatedPages, page + 10);
+          }
+        });
 
-        if (response.statusCode != 200) {
-          AppLogger().info('Failed to fetch products page $page. Status: ${response.statusCode}');
-          break;
+        List<dynamic> products;
+        try {
+          final response = await _fetchWooPageWithRetry(page, perPage);
+          if (response.statusCode != 200) {
+            AppLogger().warning(
+                'Failed to fetch products page $page. Status: ${response.statusCode}');
+            if (!mounted) break;
+            setState(() {
+              _syncFailedPages.add(page);
+            });
+            // If we hit rate-limit / server-error, break loop but save what we have
+            if (response.statusCode >= 500 || response.statusCode == 429) {
+              AppLogger().error('Stopping loop early due to HTTP ${response.statusCode}',
+                  source: 'Sync');
+              break;
+            }
+            page++;
+            continue;
+          }
+          products = json.decode(response.body) as List<dynamic>;
+        } catch (e) {
+          AppLogger().error('Page $page failed after retries: $e',
+              source: 'Sync');
+          if (mounted) {
+            setState(() {
+              _syncFailedPages.add(page);
+            });
+          }
+          // Continue to next page to not lose entire progress
+          page++;
+          if (page > 200) {
+            hasMorePages = false;
+          }
+          // Wait a bit longer after failure before continuing
+          await Future.delayed(const Duration(milliseconds: 600));
+          continue;
         }
 
-        final List<dynamic> products = json.decode(response.body);
-        
         if (products.isEmpty) {
+          // We reached the final page, set our final estimate for progress bar
+          if (mounted) {
+            setState(() {
+              _syncEstimatedPages = math.max(page - 1, 1);
+              _syncCurrentPage = math.max(page - 1, 1);
+            });
+          }
           hasMorePages = false;
           break;
         }
 
+        haveEstimated = true;
+
+        // Estimate total: current page is known, WooCommerce X-WP-Total header usually gives
+        // total count; but we estimate by doubling remaining if page is still full.
+        final int remainingEstimate = products.length == perPage ? 10 : 0;
+        if (mounted) {
+          setState(() {
+            _syncEstimatedPages = page + remainingEstimate;
+          });
+        }
+
         // Pre-allocate temporary list for this page
         final List<LocalProduct> pageProducts = List<LocalProduct>.filled(
-          products.length, 
+          products.length,
           LocalProduct(sku: '', name: '', coverPrice: '', salePrice: '', mainBarcode: ''),
           growable: false,
         );
-        
+
         int validIndex = 0;
         for (var product in products) {
           final sku = product['sku']?.toString() ?? '';
@@ -585,14 +880,22 @@ class _HomePageState extends State<HomePage> {
 
           processedCount++;
         }
-        
+
         // Add only valid products
         fetchedProducts.addAll(pageProducts.take(validIndex));
 
+        // Update live progress in UI
+        if (mounted) {
+          setState(() {
+            _syncFetchedProducts = fetchedProducts.length;
+          });
+        }
+
         page++;
-        totalProducts = processedCount + 100; // Update estimate
-        // Reduced delay for better performance
-        await Future.delayed(const Duration(milliseconds: 200));
+        totalProducts = processedCount + perPage; // Update estimate
+        // Reduced delay with jitter to avoid lockstep patterns
+        final int delayMs = 150 + math.Random().nextInt(100);
+        await Future.delayed(Duration(milliseconds: delayMs));
       }
 
       AppLogger().info('Fetched ${fetchedProducts.length} products from WooCommerce');
@@ -602,7 +905,7 @@ class _HomePageState extends State<HomePage> {
         await _database!.transaction((txn) async {
           // Use batch operations for better performance
           final Batch batch = txn.batch();
-          
+
           for (var product in fetchedProducts) {
             // Check if exists
             var existing = await txn.query(
@@ -624,48 +927,72 @@ class _HomePageState extends State<HomePage> {
               updatedCount++;
             }
           }
-          
+
           // Execute all operations in one commit
           await batch.commit(noResult: true);
         });
 
         AppLogger().info('Database updated: $newCount new, $updatedCount updated');
       }
-      
+
       setState(() {
         _lastSyncTime = DateTime.now();
         _isSyncing = false;
+        if (_syncEstimatedPages < _syncCurrentPage) {
+          _syncEstimatedPages = math.max(_syncCurrentPage, 1);
+        }
       });
 
       await _loadLocalProducts();
 
       // Show success notification
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.check_circle, color: Colors.green),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text('همگام‌سازی کامل شد: $newCount محصول جدید، $updatedCount محصول بروزرسانی شد'),
-                ),
-              ],
+        if (_syncFailedPages.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.check_circle, color: Colors.green),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                        'همگام‌سازی کامل شد: $newCount محصول جدید، $updatedCount محصول بروزرسانی شد'),
+                  ),
+                ],
+              ),
+              duration: const Duration(seconds: 4),
+              backgroundColor: Colors.green.shade700,
             ),
-            duration: const Duration(seconds: 4),
-            backgroundColor: Colors.green.shade700,
-          ),
-        );
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.warning, color: Colors.yellow),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                        'همگام‌سازی با خطا: ${_syncFailedPages.length} صفحه دریافت نشد (صفحه ${_syncFailedPages.join(",")}). $newCount محصول جدید، $updatedCount محصول بروزرسانی شد'),
+                  ),
+                ],
+              ),
+              duration: const Duration(seconds: 6),
+              backgroundColor: Colors.orange.shade800,
+            ),
+          );
+        }
       }
 
       AppLogger().info('Sync completed successfully');
-
     } catch (e) {
-      AppLogger().info('Error syncing products: $e');
-      setState(() {
-        _isSyncing = false;
-      });
-      
+      AppLogger().error('Error syncing products: $e', source: 'Sync');
+      if (mounted) {
+        setState(() {
+          _isSyncing = false;
+        });
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -733,40 +1060,89 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
-    AppLogger().info('Fetching product info for ${_barcodes.length} barcodes');
+    if (_localProducts.isNotEmpty) {
+      AppLogger().info('Using local database (${_localProducts.length} items) for product info');
+      int foundLocal = 0;
+      final Map<String, ProductInfo> localMap = HashMap<String, ProductInfo>();
+      for (final barcode in _barcodes) {
+        for (final product in _localProducts) {
+          final barcodes = <String>[product.sku, product.mainBarcode];
+          if (product.extraBarcodes.isNotEmpty) {
+            barcodes.addAll(product.extraBarcodes.split(',').map((e) => e.trim()));
+          }
+          if (barcodes.contains(barcode)) {
+            localMap[barcode] = ProductInfo(
+              name: product.name,
+              coverPrice: product.coverPrice,
+              salePrice: product.salePrice,
+            );
+            foundLocal++;
+            break;
+          }
+        }
+      }
+      if (foundLocal == _barcodes.length) {
+        setState(() {
+          _productMap = localMap;
+        });
+        AppLogger().info('All $_barcodes.length barcodes found locally');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('اطلاعات محصول از حافظه محلی دریافت شد: $foundLocal بارکد')),
+        );
+        return;
+      }
+    }
+
+    AppLogger().info('Fetching product info for ${_barcodes.length} barcodes from API');
+    final List<int> failedPages = <int>[];
 
     try {
-      // Pre-allocate map with estimated capacity
-      Map<String, ProductInfo> productMap = HashMap<String, ProductInfo>();
+      final Map<String, ProductInfo> productMap = HashMap<String, ProductInfo>();
       int page = 1;
-      const int perPage = 100;
+      const int perPage = 50;
       bool hasMorePages = true;
+      int totalFetched = 0;
 
-      // Fetch all products page by page
       while (hasMorePages) {
         AppLogger().info('Fetching products page $page');
-        
-        final url = Uri.parse(
-          '$_wooCommerceUrl/wp-json/wc/v3/products?per_page=$perPage&page=$page&consumer_key=$_consumerKey&consumer_secret=$_consumerSecret&_fields=id,sku,regular_price,sale_price,name,meta_data',
-        );
-
-        AppLogger().info('API Request: $url');
-        final response = await http.get(url);
-        AppLogger().info('API Response Status: ${response.statusCode}');
-
-        if (response.statusCode != 200) {
-          AppLogger().info('Failed to fetch products page $page. Status: ${response.statusCode}');
-          break;
+        List<dynamic> products;
+        try {
+          final response = await _fetchWooPageWithRetry(
+            page,
+            perPage,
+            maxAttempts: 4,
+            fields: 'id,sku,regular_price,sale_price,name,meta_data',
+          );
+          if (response.statusCode != 200) {
+            AppLogger().warning('Failed to fetch products page $page. Status: ${response.statusCode}');
+            failedPages.add(page);
+            if (response.statusCode == 429 || response.statusCode >= 500) {
+              AppLogger().warning('Stopping fetch loop due to HTTP ${response.statusCode}');
+              break;
+            }
+            page++;
+            await Future.delayed(const Duration(milliseconds: 800));
+            continue;
+          }
+          products = json.decode(response.body) as List<dynamic>;
+        } catch (e) {
+          AppLogger().error('Page $page fetch failed: $e', source: 'FetchInfo');
+          failedPages.add(page);
+          page++;
+          if (page > 150) {
+            hasMorePages = false;
+          }
+          await Future.delayed(const Duration(milliseconds: 1200));
+          continue;
         }
 
-        final List<dynamic> products = json.decode(response.body);
-        
         if (products.isEmpty) {
           hasMorePages = false;
           break;
         }
 
         AppLogger().info('Received ${products.length} products from page $page');
+        totalFetched += products.length;
 
         for (var product in products) {
           final sku = product['sku']?.toString() ?? '';
@@ -774,7 +1150,6 @@ class _HomePageState extends State<HomePage> {
           final regularPrice = product['regular_price']?.toString() ?? '0';
           final salePrice = product['sale_price']?.toString() ?? '';
 
-          // Extract barcodes from meta_data
           String allBarcodes = '';
           if (product['meta_data'] != null) {
             for (var meta in product['meta_data']) {
@@ -785,16 +1160,16 @@ class _HomePageState extends State<HomePage> {
             }
           }
 
-          // Map SKU to product info
+          final finalSale = salePrice.isNotEmpty ? salePrice : regularPrice;
+
           if (sku.isNotEmpty) {
             productMap[sku] = ProductInfo(
               name: name,
               coverPrice: regularPrice,
-              salePrice: salePrice.isNotEmpty ? salePrice : regularPrice,
+              salePrice: finalSale,
             );
           }
 
-          // Map all barcodes (comma-separated) to this product
           if (allBarcodes.isNotEmpty) {
             final barcodeList = allBarcodes.split(',');
             for (var barcode in barcodeList) {
@@ -803,7 +1178,7 @@ class _HomePageState extends State<HomePage> {
                 productMap[trimmedBarcode] = ProductInfo(
                   name: name,
                   coverPrice: regularPrice,
-                  salePrice: salePrice.isNotEmpty ? salePrice : regularPrice,
+                  salePrice: finalSale,
                 );
               }
             }
@@ -811,17 +1186,16 @@ class _HomePageState extends State<HomePage> {
         }
 
         page++;
-        // Reduced delay for better performance
-        await Future.delayed(const Duration(milliseconds: 300));
+        final int delayMs = 200 + math.Random().nextInt(200);
+        await Future.delayed(Duration(milliseconds: delayMs));
       }
 
       setState(() {
         _productMap = productMap;
       });
 
-      AppLogger().info('Product info loading complete. Total products in map: ${productMap.length}');
-      
-      // Log how many scanned barcodes were found
+      AppLogger().info('Product info loading complete. Total: $totalFetched products, ${productMap.length} unique keys');
+
       int foundCount = 0;
       for (var barcode in _barcodes) {
         if (productMap.containsKey(barcode)) {
@@ -829,15 +1203,31 @@ class _HomePageState extends State<HomePage> {
         }
       }
       AppLogger().info('Found product info for $foundCount out of ${_barcodes.length} scanned barcodes');
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('اطلاعات محصول دریافت شد: $foundCount از ${_barcodes.length} بارکد')),
-      );
+
+      final message = StringBuffer('اطلاعات محصول دریافت شد: $foundCount از ${_barcodes.length} بارکد');
+      if (failedPages.isNotEmpty) {
+        message.write(' (${failedPages.length} صفحه ناموفق)');
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message.toString()),
+            backgroundColor: failedPages.isEmpty ? Colors.green.shade700 : Colors.orange.shade800,
+            duration: Duration(seconds: failedPages.isEmpty ? 3 : 6),
+          ),
+        );
+      }
     } catch (e) {
-      AppLogger().info('Error fetching product info: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('خطا: $e')),
-      );
+      AppLogger().error('Error fetching product info: $e', source: 'FetchInfo');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('خطا در دریافت اطلاعات: ${e.runtimeType}'),
+            backgroundColor: Colors.red.shade700,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
     }
   }
 
@@ -999,7 +1389,25 @@ class _HomePageState extends State<HomePage> {
 
   pw.Widget _buildLabel(ScannedItem item) {
     final pw.Font? font = _persianFont;
-    
+
+    // Parse numeric prices for accurate comparison
+    final double? coverPriceVal = double.tryParse(item.coverPrice);
+    final double? salePriceVal = double.tryParse(item.salePrice.isNotEmpty && item.salePrice != '0'
+        ? item.salePrice
+        : item.coverPrice);
+    final String salePriceDisplay =
+        (salePriceVal != null && item.salePrice.isNotEmpty && item.salePrice != '0')
+            ? item.salePrice
+            : item.coverPrice;
+
+    final bool hasDiscount = _labelConfig.forceShowCoverPriceOnDiscount &&
+        coverPriceVal != null &&
+        salePriceVal != null &&
+        salePriceVal < coverPriceVal;
+
+    final String displaySalePrice = salePriceDisplay;
+    final String displayCoverPrice = item.coverPrice;
+
     return pw.Container(
       width: _labelConfig.labelWidthMm * PdfPageFormat.mm,
       height: _labelConfig.labelHeightMm * PdfPageFormat.mm,
@@ -1008,309 +1416,402 @@ class _HomePageState extends State<HomePage> {
         bottom: _labelConfig.gapVerticalMm * PdfPageFormat.mm,
       ),
       decoration: pw.BoxDecoration(
-        border: pw.Border.all(color: PdfColors.black, width: 1),
-        borderRadius: pw.BorderRadius.circular(3),
+        color: PdfColors.white,
+        border: pw.Border.all(color: PdfColors.black, width: 1.2),
+        borderRadius: pw.BorderRadius.circular(4),
       ),
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-        children: [
-          // Barcode section with black background at top
-          pw.Container(
-            width: double.infinity,
-            padding: const pw.EdgeInsets.symmetric(vertical: 6),
-            decoration: const pw.BoxDecoration(
-              color: PdfColors.black,
-              borderRadius: pw.BorderRadius.only(
-                topLeft: pw.Radius.circular(2),
-                topRight: pw.Radius.circular(2),
-              ),
-            ),
-            child: pw.Column(
-              mainAxisSize: pw.MainAxisSize.min,
-              children: [
-                pw.Text(
-                  item.barcode,
-                  style: pw.TextStyle(
-                    font: font,
-                    color: PdfColors.white,
-                    fontSize: 11,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
-                  textAlign: pw.TextAlign.center,
-                  textDirection: pw.TextDirection.rtl,
-                ),
-              ],
-            ),
-          ),
-          
-          pw.SizedBox(height: 5),
-          
-          // Product name - bold and clear
-          pw.Padding(
-            padding: const pw.EdgeInsets.symmetric(horizontal: 5),
-            child: pw.Text(
-              item.name,
-              style: pw.TextStyle(
-                font: font,
-                fontSize: 13,
-                fontWeight: pw.FontWeight.bold,
+        children: <pw.Widget>[
+          // ============ بخش بالا: شماره بارکد روی پس‌زمینه سیاه ============
+          if (_labelConfig.showBarcodeText)
+            pw.Container(
+              width: double.infinity,
+              padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 6),
+              decoration: const pw.BoxDecoration(
                 color: PdfColors.black,
+                borderRadius: pw.BorderRadius.only(
+                  topLeft: pw.Radius.circular(3),
+                  topRight: pw.Radius.circular(3),
+                ),
               ),
-              maxLines: 2,
-              textAlign: pw.TextAlign.center,
-              textDirection: pw.TextDirection.rtl,
-            ),
-          ),
-          
-          pw.Spacer(),
-          
-          // Prices row with clear distinction
-          pw.Builder(
-            builder: (pw.Context context) {
-              // بررسی وجود قیمت فروش فوق‌العاده
-              final bool hasDiscount = item.salePrice.isNotEmpty && 
-                                       item.salePrice != '0' &&
-                                       item.salePrice != item.coverPrice;
-              
-              return pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceEvenly,
-                children: [
-                  if (hasDiscount) ...[
-                    // Cover Price (crossed out) - only show if there's a discount
-                    pw.Expanded(
-                      child: pw.Column(
-                        crossAxisAlignment: pw.CrossAxisAlignment.center,
-                        children: [
-                          pw.Text(
-                            'قیمت رو جلد',
-                            style: pw.TextStyle(
-                              font: font,
-                              fontSize: 8,
-                              color: PdfColors.grey700,
-                            ),
-                            textDirection: pw.TextDirection.rtl,
-                          ),
-                          pw.SizedBox(height: 2),
-                          pw.Text(
-                            '${item.coverPrice} تومان',
-                            style: pw.TextStyle(
-                              font: font,
-                              fontSize: 10,
-                              fontWeight: pw.FontWeight.normal,
-                              decoration: pw.TextDecoration.lineThrough,
-                              color: PdfColors.grey600,
-                            ),
-                            textDirection: pw.TextDirection.rtl,
-                          ),
-                        ],
+              child: pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.center,
+                children: <pw.Widget>[
+                  pw.Svg(svg: _kBarcodeIconSvg, width: 14, height: 10),
+                  pw.SizedBox(width: 6),
+                  pw.Flexible(
+                    child: pw.Text(
+                      item.barcode.isNotEmpty ? item.barcode : '—',
+                      style: pw.TextStyle(
+                        font: font,
+                        color: PdfColors.white,
+                        fontSize: 10.5,
+                        fontWeight: pw.FontWeight.bold,
+                        letterSpacing: 0.8,
                       ),
-                    ),
-                    
-                    pw.Container(
-                      width: 1,
-                      height: 30,
-                      color: PdfColors.grey400,
-                    ),
-                  ],
-                  
-                  // Sale Price or Regular Price (highlighted)
-                  pw.Expanded(
-                    child: pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.center,
-                      children: [
-                        pw.Text(
-                          hasDiscount ? 'قیمت فروش' : 'قیمت',
-                          style: pw.TextStyle(
-                            font: font,
-                            fontSize: 9,
-                            color: PdfColors.black,
-                            fontWeight: pw.FontWeight.bold,
-                          ),
-                          textDirection: pw.TextDirection.rtl,
-                        ),
-                        pw.SizedBox(height: 2),
-                        pw.Text(
-                          '${hasDiscount ? item.salePrice : item.coverPrice} تومان',
-                          style: pw.TextStyle(
-                            font: font,
-                            fontSize: hasDiscount ? 14 : 16,
-                            fontWeight: pw.FontWeight.bold,
-                            color: PdfColors.black,
-                          ),
-                          textDirection: pw.TextDirection.rtl,
-                        ),
-                      ],
+                      textAlign: pw.TextAlign.center,
+                      textDirection: pw.TextDirection.rtl,
+                      maxLines: 1,
                     ),
                   ),
                 ],
-              );
-            },
+              ),
+            ),
+
+          // ============ بخش میانی: نام کالا (بزرگ‌ترین فونت) ============
+          pw.Expanded(
+            child: pw.Container(
+              alignment: pw.Alignment.center,
+              padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: pw.Text(
+                item.name,
+                style: pw.TextStyle(
+                  font: font,
+                  fontSize: 15.5,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.black,
+                ),
+                maxLines: 3,
+                textAlign: pw.TextAlign.center,
+                textDirection: pw.TextDirection.rtl,
+              ),
+            ),
           ),
-          
+
+          // خط جداکننده نازک بین نام و قیمت‌ها
+          pw.Container(
+            margin: const pw.EdgeInsets.symmetric(horizontal: 10),
+            height: 0.5,
+            color: PdfColors.grey500,
+          ),
           pw.SizedBox(height: 3),
+
+          // ============ بخش پایینی: قیمت‌ها (تاکید بر قیمت فروش) ============
+          pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            child: hasDiscount
+                ? pw.Row(
+                    crossAxisAlignment: pw.CrossAxisAlignment.center,
+                    children: <pw.Widget>[
+                      // قیمت روی جلد با خط خورده
+                      pw.Expanded(
+                        child: pw.Column(
+                          mainAxisAlignment: pw.MainAxisAlignment.center,
+                          crossAxisAlignment: pw.CrossAxisAlignment.center,
+                          children: <pw.Widget>[
+                            pw.Text(
+                              'قیمت روی جلد',
+                              style: pw.TextStyle(
+                                font: font,
+                                fontSize: 7.5,
+                                color: PdfColors.grey700,
+                              ),
+                              textAlign: pw.TextAlign.center,
+                              textDirection: pw.TextDirection.rtl,
+                            ),
+                            pw.SizedBox(height: 1.5),
+                            pw.Text(
+                              '$displayCoverPrice تومان',
+                              style: pw.TextStyle(
+                                font: font,
+                                fontSize: 10,
+                                decoration: pw.TextDecoration.lineThrough,
+                                decorationThickness: 1.2,
+                                color: PdfColors.grey600,
+                              ),
+                              textAlign: pw.TextAlign.center,
+                              textDirection: pw.TextDirection.rtl,
+                              maxLines: 1,
+                            ),
+                          ],
+                        ),
+                      ),
+                      // جداکننده عمودی
+                      pw.Container(
+                        width: 0.8,
+                        height: 28,
+                        color: PdfColors.black,
+                        margin: const pw.EdgeInsets.symmetric(horizontal: 2),
+                      ),
+                      // قیمت فروش برجسته
+                      pw.Expanded(
+                        flex: 2,
+                        child: pw.Column(
+                          mainAxisAlignment: pw.MainAxisAlignment.center,
+                          crossAxisAlignment: pw.CrossAxisAlignment.center,
+                          children: <pw.Widget>[
+                            pw.Text(
+                              'قیمت فروش',
+                              style: pw.TextStyle(
+                                font: font,
+                                fontSize: 8.5,
+                                fontWeight: pw.FontWeight.bold,
+                                color: PdfColors.black,
+                              ),
+                              textAlign: pw.TextAlign.center,
+                              textDirection: pw.TextDirection.rtl,
+                            ),
+                            pw.SizedBox(height: 1),
+                            pw.Text(
+                              '$displaySalePrice تومان',
+                              style: pw.TextStyle(
+                                font: font,
+                                fontSize: 15.5,
+                                fontWeight: pw.FontWeight.bold,
+                                color: PdfColors.black,
+                              ),
+                              textAlign: pw.TextAlign.center,
+                              textDirection: pw.TextDirection.rtl,
+                              maxLines: 1,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  )
+                : pw.Column(
+                    mainAxisAlignment: pw.MainAxisAlignment.center,
+                    crossAxisAlignment: pw.CrossAxisAlignment.center,
+                    children: <pw.Widget>[
+                      pw.Text(
+                        'قیمت',
+                        style: pw.TextStyle(
+                          font: font,
+                          fontSize: 8.5,
+                          fontWeight: pw.FontWeight.bold,
+                          color: PdfColors.black,
+                        ),
+                        textAlign: pw.TextAlign.center,
+                        textDirection: pw.TextDirection.rtl,
+                      ),
+                      pw.SizedBox(height: 1),
+                      pw.Text(
+                        '$displaySalePrice تومان',
+                        style: pw.TextStyle(
+                          font: font,
+                          fontSize: 17,
+                          fontWeight: pw.FontWeight.bold,
+                          color: PdfColors.black,
+                        ),
+                        textAlign: pw.TextAlign.center,
+                        textDirection: pw.TextDirection.rtl,
+                        maxLines: 1,
+                      ),
+                    ],
+                  ),
+          ),
+          pw.SizedBox(height: 2),
         ],
       ),
     );
   }
 
-  void _showLabelSettings() {
+  static const String _kBarcodeIconSvg =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 12" fill="#FFFFFF"><path d="M1 0h1v12H1zM3.5 0h1v12h-1zM6 0h.5v12H6zM8 0h2v12H8zM11.5 0h.5v12h-.5zM13.5 0h1v12h-1zM15.5 0h.5v12h-.5zM17.5 0h1.5v12h-1.5zM20.5 0h.5v12h-.5zM22.5 0h1v12h-1z"/></svg>';
+
+  Future<void> _showPdfTemplateSettings() async {
+    // Make a working copy so that if user cancels, we don't have partial changes
+    final LabelConfig tmpConfig = LabelConfig.fromJson(_labelConfig.toJson());
+    final bool tmpShowUniqueOnly = _showUniqueOnly;
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text('تنظیمات لیبل'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'چیدمان لیبل‌ها در هر صفحه A4',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                ),
-                const SizedBox(height: 16),
-                
-                // Labels per row
-                Row(
-                  children: [
-                    const Text('تعداد ستون: '),
-                    Expanded(
-                      child: Slider(
-                        value: _labelConfig.labelsPerRow.toDouble(),
-                        min: 1,
-                        max: 5,
-                        divisions: 4,
-                        label: _labelConfig.labelsPerRow.toString(),
-                        onChanged: (value) {
-                          setDialogState(() {
-                            _labelConfig.labelsPerRow = value.toInt();
-                          });
-                        },
-                      ),
+          title: const Text('تنظیمات قالب PDF لیبل'),
+          scrollable: true,
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'چیدمان لیبل‌ها در هر صفحه A4',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              const SizedBox(height: 16),
+              
+              // Labels per row
+              Row(
+                children: [
+                  const Text('تعداد ستون: '),
+                  Expanded(
+                    child: Slider(
+                      value: tmpConfig.labelsPerRow.toDouble(),
+                      min: 1,
+                      max: 5,
+                      divisions: 4,
+                      label: tmpConfig.labelsPerRow.toString(),
+                      onChanged: (value) {
+                        setDialogState(() {
+                          tmpConfig.labelsPerRow = value.toInt();
+                        });
+                      },
                     ),
-                    Text('${_labelConfig.labelsPerRow}'),
-                  ],
-                ),
-                
-                // Labels per column
-                Row(
-                  children: [
-                    const Text('تعداد ردیف: '),
-                    Expanded(
-                      child: Slider(
-                        value: _labelConfig.labelsPerColumn.toDouble(),
-                        min: 1,
-                        max: 7,
-                        divisions: 6,
-                        label: _labelConfig.labelsPerColumn.toString(),
-                        onChanged: (value) {
-                          setDialogState(() {
-                            _labelConfig.labelsPerColumn = value.toInt();
-                          });
-                        },
-                      ),
+                  ),
+                  Text('${tmpConfig.labelsPerRow}'),
+                ],
+              ),
+              
+              // Labels per column
+              Row(
+                children: [
+                  const Text('تعداد ردیف: '),
+                  Expanded(
+                    child: Slider(
+                      value: tmpConfig.labelsPerColumn.toDouble(),
+                      min: 1,
+                      max: 7,
+                      divisions: 6,
+                      label: tmpConfig.labelsPerColumn.toString(),
+                      onChanged: (value) {
+                        setDialogState(() {
+                          tmpConfig.labelsPerColumn = value.toInt();
+                        });
+                      },
                     ),
-                    Text('${_labelConfig.labelsPerColumn}'),
-                  ],
-                ),
-                
-                const Divider(),
-                Text(
-                  'مجموع لیبل در هر صفحه: ${_labelConfig.labelsPerPage}',
-                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue),
-                ),
-                
-                const SizedBox(height: 16),
-                const Text(
-                  'اندازه لیبل (میلی‌متر)',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                ),
-                const SizedBox(height: 16),
-                
-                // Label width
-                Row(
-                  children: [
-                    const Text('عرض: ', style: TextStyle(fontSize: 12)),
-                    Expanded(
-                      child: Slider(
-                        value: _labelConfig.labelWidthMm,
-                        min: 40,
-                        max: 100,
-                        divisions: 12,
-                        label: '${_labelConfig.labelWidthMm.toInt()} mm',
-                        onChanged: (value) {
-                          setDialogState(() {
-                            _labelConfig.labelWidthMm = value;
-                          });
-                        },
-                      ),
+                  ),
+                  Text('${tmpConfig.labelsPerColumn}'),
+                ],
+              ),
+              
+              const Divider(),
+              Text(
+                'مجموع لیبل در هر صفحه: ${tmpConfig.labelsPerPage}',
+                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue),
+              ),
+              
+              const SizedBox(height: 16),
+              const Text(
+                'اندازه لیبل (میلی‌متر)',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              const SizedBox(height: 16),
+              
+              // Label width
+              Row(
+                children: [
+                  const Text('عرض: ', style: TextStyle(fontSize: 12)),
+                  Expanded(
+                    child: Slider(
+                      value: tmpConfig.labelWidthMm,
+                      min: 40,
+                      max: 100,
+                      divisions: 12,
+                      label: '${tmpConfig.labelWidthMm.toInt()} mm',
+                      onChanged: (value) {
+                        setDialogState(() {
+                          tmpConfig.labelWidthMm = value;
+                        });
+                      },
                     ),
-                    Text('${_labelConfig.labelWidthMm.toInt()} mm', style: const TextStyle(fontSize: 12)),
-                  ],
-                ),
-                
-                // Label height
-                Row(
-                  children: [
-                    const Text('ارتفاع: ', style: TextStyle(fontSize: 12)),
-                    Expanded(
-                      child: Slider(
-                        value: _labelConfig.labelHeightMm,
-                        min: 25,
-                        max: 60,
-                        divisions: 7,
-                        label: '${_labelConfig.labelHeightMm.toInt()} mm',
-                        onChanged: (value) {
-                          setDialogState(() {
-                            _labelConfig.labelHeightMm = value;
-                          });
-                        },
-                      ),
+                  ),
+                  Text('${tmpConfig.labelWidthMm.toInt()} mm', style: const TextStyle(fontSize: 12)),
+                ],
+              ),
+              
+              // Label height
+              Row(
+                children: [
+                  const Text('ارتفاع: ', style: TextStyle(fontSize: 12)),
+                  Expanded(
+                    child: Slider(
+                      value: tmpConfig.labelHeightMm,
+                      min: 25,
+                      max: 60,
+                      divisions: 7,
+                      label: '${tmpConfig.labelHeightMm.toInt()} mm',
+                      onChanged: (value) {
+                        setDialogState(() {
+                          tmpConfig.labelHeightMm = value;
+                        });
+                      },
                     ),
-                    Text('${_labelConfig.labelHeightMm.toInt()} mm', style: const TextStyle(fontSize: 12)),
-                  ],
-                ),
-                
-                const SizedBox(height: 16),
-                const Text(
-                  'حاشیه‌ها و فاصله‌ها (میلی‌متر)',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                ),
-                const SizedBox(height: 8),
-                
-                // Margins
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _buildMarginField(setDialogState, 'بالا', () => _labelConfig.marginTopMm, (v) => _labelConfig.marginTopMm = v),
-                    _buildMarginField(setDialogState, 'پایین', () => _labelConfig.marginBottomMm, (v) => _labelConfig.marginBottomMm = v),
-                    _buildMarginField(setDialogState, 'چپ', () => _labelConfig.marginLeftMm, (v) => _labelConfig.marginLeftMm = v),
-                    _buildMarginField(setDialogState, 'راست', () => _labelConfig.marginRightMm, (v) => _labelConfig.marginRightMm = v),
-                    _buildMarginField(setDialogState, 'فاصله افقی', () => _labelConfig.gapHorizontalMm, (v) => _labelConfig.gapHorizontalMm = v),
-                    _buildMarginField(setDialogState, 'فاصله عمودی', () => _labelConfig.gapVerticalMm, (v) => _labelConfig.gapVerticalMm = v),
-                  ],
-                ),
-                
-                const SizedBox(height: 16),
-                SwitchListTile(
-                  title: const Text('فقط محصولات یکتا'),
-                  subtitle: const Text('حذف بارکدهای تکراری'),
-                  value: _showUniqueOnly,
-                  onChanged: (value) {
-                    setDialogState(() {
-                      _showUniqueOnly = value;
-                    });
-                  },
-                ),
-              ],
-            ),
+                  ),
+                  Text('${tmpConfig.labelHeightMm.toInt()} mm', style: const TextStyle(fontSize: 12)),
+                ],
+              ),
+              
+              const SizedBox(height: 16),
+              const Text(
+                'حاشیه‌ها و فاصله‌ها (میلی‌متر)',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+              const SizedBox(height: 8),
+              
+              // Margins
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _buildMarginField(setDialogState, 'بالا', () => tmpConfig.marginTopMm, (v) => tmpConfig.marginTopMm = v),
+                  _buildMarginField(setDialogState, 'پایین', () => tmpConfig.marginBottomMm, (v) => tmpConfig.marginBottomMm = v),
+                  _buildMarginField(setDialogState, 'چپ', () => tmpConfig.marginLeftMm, (v) => tmpConfig.marginLeftMm = v),
+                  _buildMarginField(setDialogState, 'راست', () => tmpConfig.marginRightMm, (v) => tmpConfig.marginRightMm = v),
+                  _buildMarginField(setDialogState, 'فاصله افقی', () => tmpConfig.gapHorizontalMm, (v) => tmpConfig.gapHorizontalMm = v),
+                  _buildMarginField(setDialogState, 'فاصله عمودی', () => tmpConfig.gapVerticalMm, (v) => tmpConfig.gapVerticalMm = v),
+                ],
+              ),
+              
+              const SizedBox(height: 12),
+              const Divider(),
+              const SizedBox(height: 8),
+              const Text(
+                'گزینه‌های نمایش لیبل',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+              const SizedBox(height: 8),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('نمایش شماره بارکد متنی'),
+                subtitle: const Text('در نوار بالای لیبل'),
+                value: tmpConfig.showBarcodeText,
+                onChanged: (value) {
+                  setDialogState(() {
+                    tmpConfig.showBarcodeText = value;
+                  });
+                },
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('نمایش قیمت روی جلد در صورت تخفیف'),
+                subtitle: const Text('فقط وقتی قیمت فروش کمتر باشد'),
+                value: tmpConfig.forceShowCoverPriceOnDiscount,
+                onChanged: (value) {
+                  setDialogState(() {
+                    tmpConfig.forceShowCoverPriceOnDiscount = value;
+                  });
+                },
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('فقط محصولات یکتا'),
+                subtitle: const Text('حذف بارکدهای تکراری هنگام چاپ'),
+                value: tmpShowUniqueOnly,
+                onChanged: (value) {
+                  // Modify the actual state since showUniqueOnly isn't in LabelConfig
+                  _showUniqueOnly = value;
+                  setDialogState(() {});
+                },
+              ),
+            ],
           ),
           actions: [
             TextButton(
               onPressed: () {
                 setDialogState(() {
-                  _labelConfig = LabelConfig();
+                  final LabelConfig reset = LabelConfig();
+                  tmpConfig.labelsPerRow = reset.labelsPerRow;
+                  tmpConfig.labelsPerColumn = reset.labelsPerColumn;
+                  tmpConfig.labelWidthMm = reset.labelWidthMm;
+                  tmpConfig.labelHeightMm = reset.labelHeightMm;
+                  tmpConfig.marginTopMm = reset.marginTopMm;
+                  tmpConfig.marginBottomMm = reset.marginBottomMm;
+                  tmpConfig.marginLeftMm = reset.marginLeftMm;
+                  tmpConfig.marginRightMm = reset.marginRightMm;
+                  tmpConfig.gapHorizontalMm = reset.gapHorizontalMm;
+                  tmpConfig.gapVerticalMm = reset.gapVerticalMm;
+                  tmpConfig.showBarcodeText = reset.showBarcodeText;
+                  tmpConfig.forceShowCoverPriceOnDiscount = reset.forceShowCoverPriceOnDiscount;
                 });
               },
               child: const Text('بازنشانی'),
@@ -1320,9 +1821,20 @@ class _HomePageState extends State<HomePage> {
               child: const Text('انصراف'),
             ),
             ElevatedButton(
-              onPressed: () {
-                setState(() {});
-                Navigator.pop(context);
+              onPressed: () async {
+                final bool ok = await saveLabelConfig(tmpConfig);
+                if (mounted) {
+                  setState(() {
+                    _labelConfig = tmpConfig;
+                  });
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(ok ? 'تنظیمات ذخیره شد' : 'خطا در ذخیره تنظیمات'),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                }
               },
               child: const Text('ذخیره'),
             ),
@@ -1541,92 +2053,101 @@ class _ProductsListPageState extends State<ProductsListPage> {
         title: const Text('محصولات'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'جستجو بر اساس نام، بارکد یا کد محصول',
-                prefixIcon: const Icon(Icons.search),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+      body: SafeArea(
+        top: false,
+        bottom: true,
+        left: false,
+        right: false,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: TextField(
+                controller: _searchController,
+                decoration: InputDecoration(
+                  hintText: 'جستجو بر اساس نام، بارکد یا کد محصول',
+                  prefixIcon: const Icon(Icons.search),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  filled: true,
+                  fillColor: Colors.grey.shade100,
                 ),
-                filled: true,
-                fillColor: Colors.grey.shade100,
               ),
             ),
-          ),
-          Expanded(
-            child: _filteredProducts.isEmpty
-                ? const Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.inventory_2_outlined, size: 64, color: Colors.grey),
-                        SizedBox(height: 16),
-                        Text(
-                          'محصولی یافت نشد',
-                          style: TextStyle(fontSize: 16, color: Colors.grey),
-                        ),
-                      ],
-                    ),
-                  )
-                : ListView.builder(
-                    itemCount: _filteredProducts.length,
-                    itemBuilder: (context, index) {
-                      final product = _filteredProducts[index];
-                      return Card(
-                        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                        child: ExpansionTile(
-                          leading: CircleAvatar(
-                            backgroundColor: Colors.blue,
-                            child: Text(
-                              '${index + 1}',
-                              style: const TextStyle(color: Colors.white),
-                            ),
+            Expanded(
+              child: _filteredProducts.isEmpty
+                  ? const Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.inventory_2_outlined, size: 64, color: Colors.grey),
+                          SizedBox(height: 16),
+                          Text(
+                            'محصولی یافت نشد',
+                            style: TextStyle(fontSize: 16, color: Colors.grey),
                           ),
-                          title: Text(
-                            product.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          subtitle: Text('کد: ${product.sku}'),
-                          trailing: Text(
-                            '${product.salePrice} تومان',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.green,
-                            ),
-                          ),
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  _buildInfoRow('بارکد اصلی', product.mainBarcode),
-                                  if (product.extraBarcodes.isNotEmpty)
-                                    _buildInfoRow('بارکدهای اضافی', product.extraBarcodes),
-                                  _buildInfoRow('قیمت روی جلد', '${product.coverPrice} تومان'),
-                                  _buildInfoRow('قیمت فروش', '${product.salePrice} تومان'),
-                                  _buildInfoRow('موجودی', product.stockQuantity.toString()),
-                                  if (product.lastSynced != null)
-                                    _buildInfoRow(
-                                      'آخرین بروزرسانی',
-                                      product.lastSynced!.toString().substring(0, 16),
-                                    ),
-                                ],
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: EdgeInsets.only(
+                        bottom: MediaQuery.of(context).padding.bottom + 16,
+                      ),
+                      itemCount: _filteredProducts.length,
+                      itemBuilder: (context, index) {
+                        final product = _filteredProducts[index];
+                        return Card(
+                          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                          child: ExpansionTile(
+                            leading: CircleAvatar(
+                              backgroundColor: Colors.blue,
+                              child: Text(
+                                '${index + 1}',
+                                style: const TextStyle(color: Colors.white),
                               ),
                             ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-          ),
-        ],
+                            title: Text(
+                              product.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: Text('کد: ${product.sku}'),
+                            trailing: Text(
+                              '${product.salePrice} تومان',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green,
+                              ),
+                            ),
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    _buildInfoRow('بارکد اصلی', product.mainBarcode),
+                                    if (product.extraBarcodes.isNotEmpty)
+                                      _buildInfoRow('بارکدهای اضافی', product.extraBarcodes),
+                                    _buildInfoRow('قیمت روی جلد', '${product.coverPrice} تومان'),
+                                    _buildInfoRow('قیمت فروش', '${product.salePrice} تومان'),
+                                    _buildInfoRow('موجودی', product.stockQuantity.toString()),
+                                    if (product.lastSynced != null)
+                                      _buildInfoRow(
+                                        'آخرین بروزرسانی',
+                                        product.lastSynced!.toString().substring(0, 16),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }

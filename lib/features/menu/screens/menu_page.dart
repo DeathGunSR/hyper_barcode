@@ -53,6 +53,10 @@ class _MenuPageState extends State<MenuPage> {
         ],
       ),
       body: SafeArea(
+        top: false,
+        bottom: true,
+        left: false,
+        right: false,
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
@@ -134,9 +138,9 @@ class _MenuPageState extends State<MenuPage> {
                         );
                       },
                     ),
-                    
+
                     const SizedBox(height: 16),
-                    
+
                     _buildMenuCard(
                       icon: Icons.shopping_cart,
                       title: widget.currentLocale == 'fa' ? 'چک‌لیست خرید مشترک' : 'Shared Shopping List',
@@ -155,30 +159,10 @@ class _MenuPageState extends State<MenuPage> {
                         );
                       },
                     ),
-                    
-                    const SizedBox(height: 16),
-                    
-                    _buildMenuCard(
-                      icon: Icons.settings,
-                      title: widget.currentLocale == 'fa' ? 'تنظیمات' : 'Settings',
-                      subtitle: widget.currentLocale == 'fa'
-                          ? 'شخصی‌سازی ظاهر و رفتار برنامه'
-                          : 'Customize app appearance and behavior',
-                      color: Colors.purple,
-                      onTap: () {
-                        _showFullSettings(context);
-                      },
-                    ),
                   ],
                 ),
               ),
-              
-              Center(
-                child: Text(
-                  widget.currentLocale == 'fa' ? 'نسخه ۱.۰.۰' : 'Version 1.0.0',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                ),
-              ),
+
               const SizedBox(height: 16),
             ],
           ),

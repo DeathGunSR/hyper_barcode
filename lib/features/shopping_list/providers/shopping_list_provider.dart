@@ -58,16 +58,16 @@ class ShoppingListProvider extends ChangeNotifier {
   bool get isSyncing => SyncProvider().isSyncing;
   SyncState get syncState => SyncProvider().syncState;
 
-  /// تگ‌های سفارشی ساخته‌شده توسط کاربر.
+  /// تگ‌های سفارشی ساخته‌شده توسط کاربر (همه تگ‌ها چون تگ‌های پیش‌فرض حذف شده‌اند).
   List<ShoppingListTag> get customTags =>
       List<ShoppingListTag>.unmodifiable(_customTags);
 
-  /// همه تگ‌ها = پیش‌فرض + سفارشی (بدون محدودیت تعداد).
+  /// همه تگ‌ها = فقط تگ‌های کاربر ساخته‌شده (تگ‌های پیش‌فرض حذف شده‌اند).
   List<ShoppingListTag> get allTags =>
-      DefaultTags.getAllTags(customTags: _customTags);
+      List<ShoppingListTag>.unmodifiable(_customTags);
 
   ShoppingListTag? getTagById(String id) =>
-      DefaultTags.getById(id, customTags: _customTags);
+      TagQueries.getById(id, tags: _customTags);
 
   String getTagColor(String tagId) =>
       getTagById(tagId)?.colorHex ?? '#BDBDBD';
@@ -120,16 +120,20 @@ class ShoppingListProvider extends ChangeNotifier {
   // ==================== تگ‌های سفارشی ====================
 
   /// ساخت تگ سفارشی جدید (با اعتبارسنجی و مدیریت نام تکراری).
+  ///
+  /// [parentId] برای ساختار درختی تگ‌ها است (اختیاری).
   Future<TagCreateResult> createTag({
     required String nameFa,
     required String nameEn,
     required String colorHex,
+    String? parentId,
   }) async {
     final TagCreateResult result = await CustomTagService.createCustomTag(
       nameFa: nameFa,
       nameEn: nameEn,
       colorHex: colorHex,
       existingCustomTags: _customTags,
+      parentId: parentId,
     );
 
     switch (result.status) {
@@ -140,6 +144,8 @@ class ShoppingListProvider extends ChangeNotifier {
           source: 'ShoppingListProvider',
         );
         notifyListeners();
+        // T-07: همگام‌سازی خودکار پس از هر تغییری
+        unawaited(syncWithServer());
         break;
       case TagCreateStatus.duplicate:
         _log.info('Duplicate tag name rejected: $nameFa',
@@ -154,11 +160,13 @@ class ShoppingListProvider extends ChangeNotifier {
     return result;
   }
 
-  /// حذف تگ سفارشی (تگ‌های پیش‌فرض قابل حذف نیستند).
+  /// حذف تگ سفارشی.
   Future<void> deleteTag(String tagId) async {
     final ShoppingListTag? tag = getTagById(tagId);
-    if (tag == null || !tag.isCustom) return;
+    if (tag == null) return;
 
+    // قبل از حذف، تگ را «معلق حذف» علامت می‌زنیم تا در همگام‌سازی بعدی
+    // روی سرور هم حذف شود. فعلاً چون API حذف تگ نداریم مستقیم حذف می‌کنیم.
     final bool ok = await CustomTagService.deleteCustomTag(tagId);
     if (!ok) return;
 
@@ -176,6 +184,8 @@ class ShoppingListProvider extends ChangeNotifier {
     if (_selectedTag == tagId) _selectedTag = null;
     await loadItems();
     _log.info('Custom tag deleted: $tagId', source: 'ShoppingListProvider');
+    // T-07: همگام‌سازی خودکار پس از هر تغییری
+    unawaited(syncWithServer());
   }
 
   // ==================== کاربر محلی ====================
@@ -268,6 +278,8 @@ class ShoppingListProvider extends ChangeNotifier {
 
       // ارسال به سرور بدون مسدود کردن UI و بدون بستن هیچ دیالوگی.
       unawaited(_pushSingleItem(item.copyWith(id: newId)));
+      // T-07: همگام‌سازی خودکار پس از هر تغییری
+      unawaited(syncWithServer());
 
       return true;
     } catch (e, stack) {
@@ -300,6 +312,8 @@ class ShoppingListProvider extends ChangeNotifier {
       _notify();
 
       unawaited(_pushSingleItem(updated));
+      // T-07: همگام‌سازی خودکار پس از هر تغییری
+      unawaited(syncWithServer());
     } catch (e, stack) {
       _log.error('Failed to update purchase status',
           source: 'ShoppingListProvider', exception: e, stackTrace: stack);
@@ -323,6 +337,8 @@ class ShoppingListProvider extends ChangeNotifier {
         _applyFilters();
         _notify();
         unawaited(_pushSingleItem(_items[index]));
+        // T-07: همگام‌سازی خودکار پس از هر تغییری
+        unawaited(syncWithServer());
       }
       return true;
     } catch (e, stack) {
@@ -345,6 +361,37 @@ class ShoppingListProvider extends ChangeNotifier {
       current.add(tagId);
     }
     return updateItemTags(itemId, current);
+  }
+
+  /// بروزرسانی نام و بارکد یک آیتم.
+  Future<bool> updateItemDetails(int id, {String? name, String? barcode}) async {
+    try {
+      final ShoppingListItem? existing = await _dbService.getItem(id);
+      if (existing == null) return false;
+      final String newName = (name ?? existing.name).trim();
+      if (newName.isEmpty) return false;
+      final ShoppingListItem updated = existing.copyWith(
+        name: newName,
+        barcode: barcode ?? existing.barcode,
+        pendingSync: true,
+      );
+      await _dbService.updateItem(updated);
+
+      final int idx = _items.indexWhere((ShoppingListItem i) => i.id == id);
+      if (idx != -1) {
+        _items[idx] = updated;
+        _applyFilters();
+        _notify();
+      }
+      unawaited(_pushSingleItem(updated));
+      unawaited(syncWithServer());
+      return true;
+    } catch (e, stack) {
+      _log.error('Failed to update item details',
+          source: 'ShoppingListProvider', exception: e, stackTrace: stack);
+      _setError('خطا در بروزرسانی آیتم', isNetwork: false);
+      return false;
+    }
   }
 
   /// حذف آیتم.
@@ -370,6 +417,8 @@ class ShoppingListProvider extends ChangeNotifier {
           );
         }
       }
+      // T-07: همگام‌سازی خودکار پس از هر تغییری
+      unawaited(syncWithServer());
     } catch (e, stack) {
       _log.error('Failed to delete item', source: 'ShoppingListProvider',
           exception: e, stackTrace: stack);
@@ -444,7 +493,7 @@ class ShoppingListProvider extends ChangeNotifier {
     }
   }
 
-  /// بدنه واقعی همگام‌سازی: ابتدا ارسال آیتم‌های معلق، سپس دریافت آیتم‌ها.
+  /// بدنه واقعی همگام‌سازی: ابتدا تگ‌ها، سپس ارسال آیتم‌های معلق، سپس دریافت آیتم‌ها.
   Future<void> _performSync(
     int progress,
     int total,
@@ -452,7 +501,68 @@ class ShoppingListProvider extends ChangeNotifier {
   ) async {
     final SyncProvider sync = SyncProvider();
 
-    // ---------- مرحله ۱: ارسال تغییرات محلی ----------
+    // ---------- مرحله ۰: همگام‌سازی تگ‌ها (T-06) ----------
+    // چون تگ‌ها اندپوینت ممکن است در سرور پیاده‌سازی نشده باشد، کل مراحل
+    // تگ‌ها داخل try/catch قرار می‌گیرند و خطا باعث توقف کل sync نمی‌شود.
+    int tagUploads = 0;
+    int tagDownloads = 0;
+    bool tagsEndpointAvailable = true;
+    try {
+      // ۰.۱: آپلود تگ‌های معلق (pendingSync=true)
+      final List<ShoppingListTag> pendingTags = _customTags
+          .where((ShoppingListTag t) => t.pendingSync)
+          .toList();
+      for (final ShoppingListTag tag in pendingTags) {
+        final ShoppingListTag? result = await _apiService.upsertTag(tag);
+        if (result != null) {
+          // اندپوینت فعال بود و پاسخ داد → تگ را به‌روز کن.
+          final int idx = _customTags.indexWhere((ShoppingListTag t) => t.id == tag.id);
+          if (idx != -1) {
+            _customTags[idx] = result;
+          }
+          tagUploads++;
+        } else {
+          // result == null → 404 اندپوینت. بقیه تگ‌ها را هم امتحان نکنیم.
+          tagsEndpointAvailable = false;
+          break;
+        }
+      }
+      if (tagsEndpointAvailable) {
+        await CustomTagService.saveCustomTags(_customTags);
+      }
+
+      // ۰.۲: دانلود تگ‌های سرور و merge با تگ‌های محلی
+      if (tagsEndpointAvailable) {
+        final List<ShoppingListTag> serverTags = await _apiService.fetchAllTags();
+        if (serverTags.isNotEmpty) {
+          // merge: بر اساس شناسه محلی یا نام؛ تگ تکراری اضافه نمی‌شود.
+          final List<ShoppingListTag> merged = List<ShoppingListTag>.from(_customTags);
+          for (final ShoppingListTag st in serverTags) {
+            final bool exists = merged.any((ShoppingListTag t) => t.id == st.id ||
+                TagQueries.findByName(st.nameFa, tags: merged) != null ||
+                TagQueries.findByName(st.nameEn, tags: merged) != null);
+            if (!exists) {
+              merged.add(st);
+              tagDownloads++;
+            }
+          }
+          if (tagDownloads > 0) {
+            _customTags = merged;
+            await CustomTagService.saveCustomTags(_customTags);
+          }
+        }
+      }
+    } catch (e, stack) {
+      _log.warning(
+        'Tag sync skipped (endpoint unavailable?): $e',
+        source: 'ShoppingListProvider',
+        exception: e,
+        stackTrace: stack,
+      );
+      tagsEndpointAvailable = false;
+    }
+
+    // ---------- مرحله ۱: ارسال تغییرات محلی آیتم‌ها ----------
     final List<ShoppingListItem> pending =
         await _dbService.getPendingItemsForSync();
     final int totalSteps = pending.length + 1;
@@ -460,10 +570,16 @@ class ShoppingListProvider extends ChangeNotifier {
     sync.updateProgress(
       0,
       totalSteps,
-      'Uploading ${pending.length} pending item(s)...',
+      tagsEndpointAvailable
+          ? 'Tags: $tagUploads uploaded, $tagDownloads new — Uploading ${pending.length} pending item(s)...'
+          : 'Uploading ${pending.length} pending item(s)...',
     );
-    _log.info('Sync: ${pending.length} pending item(s) to upload',
-        source: 'ShoppingListProvider');
+    _log.info(
+      tagsEndpointAvailable
+          ? 'Sync: tags($tagUploads up, $tagDownloads new), ${pending.length} pending item(s) to upload'
+          : 'Sync: ${pending.length} pending item(s) to upload (tag sync skipped)',
+      source: 'ShoppingListProvider',
+    );
 
     int uploaded = 0;
     int failedUploads = 0;
@@ -523,17 +639,22 @@ class ShoppingListProvider extends ChangeNotifier {
     // ---------- مرحله ۳: بازخوانی از دیتابیس ----------
     _lastSyncTime = DateTime.now();
     await loadItems();
+    // تگ‌های به‌روز شده را هم به UI منتقل کن.
+    _notify();
 
     sync.reportSummary(
       newCount: serverItems.length,
-      updatedCount: uploaded,
+      updatedCount: uploaded + tagUploads,
       message: failedUploads == 0
-          ? 'Synced: ${serverItems.length} from server, $uploaded uploaded'
+          ? (tagsEndpointAvailable
+              ? 'Synced: $tagDownloads new tags, ${serverItems.length} items from server, $tagUploads tags + $uploaded items uploaded'
+              : 'Synced: ${serverItems.length} from server, $uploaded uploaded (tag sync skipped)')
           : 'Synced with $failedUploads upload failure(s): '
               '${serverItems.length} from server, $uploaded uploaded',
     );
     _log.info(
-      'Sync finished: server=${serverItems.length}, uploaded=$uploaded, '
+      'Sync finished: tags(up=$tagUploads, new=$tagDownloads, available=$tagsEndpointAvailable), '
+      'server items=${serverItems.length}, items uploaded=$uploaded, '
       'failed=$failedUploads',
       source: 'ShoppingListProvider',
     );

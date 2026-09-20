@@ -159,6 +159,149 @@ class ShoppingListApiService {
     return response.statusCode == 200;
   }
 
+  // ==================== تگ‌ها ====================
+
+  /// دریافت تمام تگ‌ها از سرور (برای همگام‌سازی).
+  ///
+  /// اگر اندپوینت تگ‌ها در افزونه سرور هنوز وجود نداشته باشد (404)،
+  /// یک لیست خالی برمی‌گرداند تا خطا کل همگام‌سازی را خراب نکند.
+  Future<List<ShoppingListTag>> fetchAllTags() async {
+    final String endpoint = ApiConfig.shoppingTagsEndpoint;
+    final Uri uri = Uri.parse(endpoint);
+    try {
+      final http.Response response = await _client.get(
+        uri,
+        headers: const <String, String>{'Accept': 'application/json'},
+        retry: false,
+      );
+
+      if (response.statusCode == 404 || response.statusCode == 403) {
+        _log.info(
+          'Tags endpoint not implemented on server (HTTP ${response.statusCode}); '
+          'using local tags only',
+          source: 'ShoppingListApi',
+        );
+        return <ShoppingListTag>[];
+      }
+      if (response.statusCode != 200) {
+        throw NetworkFailure(
+          kind: NetworkFailureKind.http,
+          url: endpoint,
+          technical: 'GET tags failed: HTTP ${response.statusCode}',
+          statusCode: response.statusCode,
+          responseBody: response.body,
+        );
+      }
+
+      final dynamic json = _client.decodeJson(response, endpoint);
+      return _parseTags(json);
+    } on NetworkFailure catch (e) {
+      if (e.kind == NetworkFailureKind.http &&
+          (e.statusCode == 404 || e.statusCode == 403)) {
+        _log.info(
+          'Tags endpoint not reachable (${e.statusCode}); using local tags only',
+          source: 'ShoppingListApi',
+        );
+        return <ShoppingListTag>[];
+      }
+      rethrow;
+    }
+  }
+
+  List<ShoppingListTag> _parseTags(dynamic json) {
+    if (json is! List) {
+      _log.warning(
+        'Expected tags JSON array, got ${json.runtimeType}',
+        source: 'ShoppingListApi',
+      );
+      return <ShoppingListTag>[];
+    }
+    final List<ShoppingListTag> result = <ShoppingListTag>[];
+    for (final dynamic entry in json) {
+      if (entry is! Map) continue;
+      try {
+        final Map<String, dynamic> data = Map<String, dynamic>.from(entry);
+        final String id = data['local_id']?.toString() ??
+            data['id']?.toString() ??
+            'tag_${DateTime.now().millisecondsSinceEpoch}';
+        final int? serverId = asIntOrNull(data['server_id'] ?? data['id']);
+        final String nameFa = (data['name_fa'] ?? data['nameFa'] ?? data['name'] ?? '').toString();
+        final String nameEn = (data['name_en'] ?? data['nameEn'] ?? data['name'] ?? nameFa).toString();
+        final String? parentIdRaw = (data['parent_id'] ?? data['parentId'])?.toString();
+        result.add(ShoppingListTag(
+          id: id.isNotEmpty ? id : 'tag_${serverId ?? result.length}',
+          nameFa: nameFa.isNotEmpty ? nameFa : nameEn,
+          nameEn: nameEn.isNotEmpty ? nameEn : nameFa,
+          colorHex: (data['color_hex'] ?? data['colorHex'] ?? '#BDBDBD').toString(),
+          isCustom: true,
+          parentId: (parentIdRaw != null && parentIdRaw.trim().isNotEmpty) ? parentIdRaw : null,
+          serverId: serverId,
+          pendingSync: false,
+        ));
+      } catch (e) {
+        _log.warning(
+          'Skipped malformed server tag: $e',
+          source: 'ShoppingListApi',
+          metadata: <String, dynamic>{'entry': entry.toString()},
+        );
+      }
+    }
+    return result;
+  }
+
+  /// ساخت/بروزرسانی یک تگ روی سرور (upsert بر اساس شناسه محلی).
+  ///
+  /// برگرداندن: تگ به‌روز شده همراه `serverId` در صورت موفقیت؛
+  /// در صورت 404/نبود اندپوینت: `null` (تگ محلی باقی می‌ماند).
+  Future<ShoppingListTag?> upsertTag(ShoppingListTag tag) async {
+    final String endpoint = ApiConfig.shoppingTagsEndpoint;
+    final Uri uri = Uri.parse(endpoint);
+    try {
+      final Map<String, dynamic> payload = <String, dynamic>{
+        'local_id': tag.id,
+        'name_fa': tag.nameFa,
+        'name_en': tag.nameEn,
+        'color_hex': tag.colorHex,
+        if (tag.parentId != null) 'parent_id': tag.parentId,
+        if (tag.serverId != null) 'server_id': tag.serverId,
+      };
+      final http.Response response = tag.serverId == null
+          ? await _client.postJson(uri, payload, headers: _jsonHeaders)
+          : await _client.putJson(
+              Uri.parse(ApiConfig.shoppingTagEndpoint(tag.serverId!)),
+              payload,
+              headers: _jsonHeaders,
+            );
+
+      if (response.statusCode == 404 || response.statusCode == 403) {
+        return null;
+      }
+      if (response.statusCode != 200 && response.statusCode != 201) {
+        throw NetworkFailure(
+          kind: NetworkFailureKind.http,
+          url: endpoint,
+          technical: 'UPSERT tag failed: HTTP ${response.statusCode}',
+          statusCode: response.statusCode,
+          responseBody: response.body,
+        );
+      }
+
+      final dynamic json = _client.decodeJson(response, endpoint);
+      if (json is Map) {
+        final Map<String, dynamic> data = Map<String, dynamic>.from(json);
+        final int? serverId = asIntOrNull(data['server_id'] ?? data['id']);
+        return tag.copyWith(serverId: serverId, pendingSync: false);
+      }
+      return tag.copyWith(pendingSync: false);
+    } on NetworkFailure catch (e) {
+      if (e.kind == NetworkFailureKind.http &&
+          (e.statusCode == 404 || e.statusCode == 403)) {
+        return null;
+      }
+      rethrow;
+    }
+  }
+
   // ==================== کاربران ====================
 
   Future<Map<String, dynamic>?> registerUser(

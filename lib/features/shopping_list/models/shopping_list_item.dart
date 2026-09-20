@@ -252,16 +252,29 @@ class ShoppingListTag {
   final String nameEn;
   final String colorHex;
 
-  /// آیا این تگ توسط کاربر ساخته شده است (نه از تگ‌های پیش‌فرض).
-  final bool isCustom;
+  /// شناسه تگ والد (برای ساختار درختی).
+  /// اگر `null` یعنی تگ در سطح ریشه است.
+  final String? parentId;
+
+  /// شناسه این تگ روی سرور وردپرس (برای همگام‌سازی).
+  final int? serverId;
+
+  /// اگر true یعنی تگ هنوز روی سرور ثبت/بروزرسانی نشده است.
+  final bool pendingSync;
 
   const ShoppingListTag({
     required this.id,
     required this.nameFa,
     required this.nameEn,
     required this.colorHex,
-    this.isCustom = false,
+    this.isCustom = true,
+    this.parentId,
+    this.serverId,
+    this.pendingSync = true,
   });
+
+  /// آیا این تگ توسط کاربر ساخته شده است (همیشه true، زیرا تگ‌های پیش‌فرض حذف شده‌اند).
+  final bool isCustom;
 
   String getName(String locale) => locale == 'fa' ? nameFa : nameEn;
 
@@ -274,23 +287,59 @@ class ShoppingListTag {
     return id;
   }
 
+  /// عمق درختی تگ (برای indent در UI).
+  int depth(List<ShoppingListTag> allTags) {
+    int d = 0;
+    String? cur = parentId;
+    final Set<String> seen = <String>{};
+    while (cur != null) {
+      if (seen.contains(cur)) break;
+      seen.add(cur);
+      d++;
+      final ShoppingListTag? p = _findTagById(allTags, cur);
+      cur = p?.parentId;
+    }
+    return d;
+  }
+
+  /// لیست تگ‌های فرزند مستقیم.
+  List<ShoppingListTag> children(List<ShoppingListTag> allTags) {
+    return allTags.where((ShoppingListTag t) => t.parentId == id).toList();
+  }
+
+  static ShoppingListTag? _findTagById(List<ShoppingListTag> allTags, String id) {
+    for (final ShoppingListTag t in allTags) {
+      if (t.id == id) return t;
+    }
+    return null;
+  }
+
   Map<String, dynamic> toJson() => <String, dynamic>{
         'id': id,
         'nameFa': nameFa,
         'nameEn': nameEn,
         'colorHex': colorHex,
         'isCustom': isCustom,
+        'parentId': parentId,
+        'serverId': serverId,
+        'pendingSync': pendingSync,
       };
 
   factory ShoppingListTag.fromJson(Map<String, dynamic> json) {
     final String nameFa = json['nameFa']?.toString() ?? '';
     final String nameEn = json['nameEn']?.toString() ?? '';
+    final String? parentIdRaw = json['parentId']?.toString();
     return ShoppingListTag(
       id: json['id']?.toString() ?? '',
       nameFa: nameFa.isNotEmpty ? nameFa : nameEn,
       nameEn: nameEn.isNotEmpty ? nameEn : nameFa,
       colorHex: json['colorHex']?.toString() ?? '#BDBDBD',
       isCustom: json['isCustom'] == null ? true : asBool(json['isCustom']),
+      parentId: (parentIdRaw != null && parentIdRaw.trim().isNotEmpty) ? parentIdRaw : null,
+      serverId: (json['serverId'] == null || json['serverId'] == '')
+          ? null
+          : asIntOrNull(json['serverId']),
+      pendingSync: json['pendingSync'] == null ? true : asBool(json['pendingSync']),
     );
   }
 
@@ -300,6 +349,11 @@ class ShoppingListTag {
     String? nameEn,
     String? colorHex,
     bool? isCustom,
+    Object? clearParentId = const _None(),
+    String? parentId,
+    Object? clearServerId = const _None(),
+    int? serverId,
+    bool? pendingSync,
   }) {
     return ShoppingListTag(
       id: id ?? this.id,
@@ -307,6 +361,9 @@ class ShoppingListTag {
       nameEn: nameEn ?? this.nameEn,
       colorHex: colorHex ?? this.colorHex,
       isCustom: isCustom ?? this.isCustom,
+      parentId: clearParentId is! _None ? null : (parentId ?? this.parentId),
+      serverId: clearServerId is! _None ? null : (serverId ?? this.serverId),
+      pendingSync: pendingSync ?? this.pendingSync,
     );
   }
 
@@ -318,80 +375,27 @@ class ShoppingListTag {
   int get hashCode => id.hashCode;
 }
 
-/// تگ‌های پیش‌فرض برنامه (همیشه در دسترس هستند و پاک نمی‌شوند).
-class DefaultTags {
-  static const List<ShoppingListTag> tags = <ShoppingListTag>[
-    ShoppingListTag(
-        id: 'dairy', nameFa: 'لبنیات', nameEn: 'Dairy', colorHex: '#FFB74D'),
-    ShoppingListTag(
-        id: 'protein',
-        nameFa: 'پروتئینی',
-        nameEn: 'Protein',
-        colorHex: '#E57373'),
-    ShoppingListTag(
-        id: 'grains', nameFa: 'غلات', nameEn: 'Grains', colorHex: '#FFF176'),
-    ShoppingListTag(
-        id: 'vegetables',
-        nameFa: 'سبزیجات',
-        nameEn: 'Vegetables',
-        colorHex: '#81C784'),
-    ShoppingListTag(
-        id: 'fruits', nameFa: 'میوه‌ها', nameEn: 'Fruits', colorHex: '#AED581'),
-    ShoppingListTag(
-        id: 'snacks', nameFa: 'تنقلات', nameEn: 'Snacks', colorHex: '#FFD54F'),
-    ShoppingListTag(
-        id: 'beverages',
-        nameFa: 'نوشیدنی‌ها',
-        nameEn: 'Beverages',
-        colorHex: '#4DB6AC'),
-    ShoppingListTag(
-        id: 'household',
-        nameFa: 'خانگی',
-        nameEn: 'Household',
-        colorHex: '#90CAF9'),
-    ShoppingListTag(
-        id: 'personal_care',
-        nameFa: 'بهداشتی',
-        nameEn: 'Personal Care',
-        colorHex: '#CE93D8'),
-    ShoppingListTag(
-        id: 'other', nameFa: 'سایر', nameEn: 'Other', colorHex: '#BDBDBD'),
-  ];
+/// Sentinel برای تشخیص «پاک کردن مقدار null».
+class _None {
+  const _None();
+}
 
-  /// جستجوی تگ در تگ‌های پیش‌فرض و سپس تگ‌های سفارشی.
-  static ShoppingListTag? getById(String id, {List<ShoppingListTag>? customTags}) {
+/// کمکی‌ها برای جستجوی تگ‌ها (فقط شامل تگ‌های کاربر، چون تگ‌های پیش‌فرض حذف شده‌اند).
+class TagQueries {
+  static ShoppingListTag? getById(String id, {required List<ShoppingListTag> tags}) {
     for (final ShoppingListTag tag in tags) {
       if (tag.id == id) return tag;
-    }
-    if (customTags != null) {
-      for (final ShoppingListTag tag in customTags) {
-        if (tag.id == id) return tag;
-      }
     }
     return null;
   }
 
-  /// ترکیب تگ‌های پیش‌فرض و سفارشی (بدون تکرار).
-  static List<ShoppingListTag> getAllTags({List<ShoppingListTag>? customTags}) {
-    final List<ShoppingListTag> result = <ShoppingListTag>[...tags];
-    if (customTags != null) {
-      for (final ShoppingListTag tag in customTags) {
-        if (!result.any((ShoppingListTag t) => t.id == tag.id)) {
-          result.add(tag);
-        }
-      }
-    }
-    return result;
-  }
-
-  /// بررسی تکراری بودن نام (بدون حساسیت به بزرگی/کوچکی حروف).
   static ShoppingListTag? findByName(
     String name, {
-    List<ShoppingListTag>? customTags,
+    required List<ShoppingListTag> tags,
   }) {
     final String needle = name.trim().toLowerCase();
     if (needle.isEmpty) return null;
-    for (final ShoppingListTag tag in getAllTags(customTags: customTags)) {
+    for (final ShoppingListTag tag in tags) {
       if (tag.nameFa.trim().toLowerCase() == needle ||
           tag.nameEn.trim().toLowerCase() == needle) {
         return tag;
@@ -503,11 +507,13 @@ class CustomTagService {
   /// - نام خالی مجاز نیست ([TagCreateStatus.invalidEmptyName]).
   /// - نام تکراری به صورت «معمولی» مدیریت می‌شود: به جای ساخت تگ جدید،
   ///   تگ موجود برگردانده می‌شود ([TagCreateStatus.duplicate]).
+  /// - [parentId] شناسه تگ والد برای ساختار درختی است (اختیاری).
   static Future<TagCreateResult> createCustomTag({
     required String nameFa,
     required String nameEn,
     required String colorHex,
     List<ShoppingListTag>? existingCustomTags,
+    String? parentId,
   }) async {
     final String fa = nameFa.trim();
     final String en = nameEn.trim();
@@ -524,10 +530,10 @@ class CustomTagService {
     final List<ShoppingListTag> existing =
         existingCustomTags ?? await loadCustomTags();
 
-    // مدیریت تکراری بودن نام (شامل تگ‌های پیش‌فرض).
-    final ShoppingListTag? duplicate = DefaultTags.findByName(
+    // مدیریت تکراری بودن نام (فقط روی تگ‌های کاربر ساخته‌شده).
+    final ShoppingListTag? duplicate = TagQueries.findByName(
       displayName,
-      customTags: existing,
+      tags: existing,
     );
     if (duplicate != null) {
       return TagCreateResult(
@@ -544,6 +550,8 @@ class CustomTagService {
       nameEn: en.isNotEmpty ? en : fa,
       colorHex: normalizeHexColor(colorHex),
       isCustom: true,
+      parentId: parentId,
+      pendingSync: true,
     );
 
     final bool saved =

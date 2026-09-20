@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
+import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -1438,7 +1439,24 @@ class _HomePageState extends State<HomePage> {
               child: pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.center,
                 children: <pw.Widget>[
-                  pw.Svg(svg: _kBarcodeIconSvg, width: 14, height: 10),
+                  pw.SizedBox(
+                    width: 14,
+                    height: 10,
+                    child: pw.Row(
+                      crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                      children: <pw.Widget>[
+                        pw.Container(width: 1.2, color: PdfColors.white),
+                        pw.Container(width: 0.6, color: PdfColors.white),
+                        pw.Container(width: 1.4, color: PdfColors.white),
+                        pw.Container(width: 0.6, color: PdfColors.white),
+                        pw.Container(width: 0.8, color: PdfColors.white),
+                        pw.Container(width: 1.2, color: PdfColors.white),
+                        pw.Container(width: 0.6, color: PdfColors.white),
+                        pw.Container(width: 1.0, color: PdfColors.white),
+                      ],
+                    ),
+                  ),
                   pw.SizedBox(width: 6),
                   pw.Flexible(
                     child: pw.Text(

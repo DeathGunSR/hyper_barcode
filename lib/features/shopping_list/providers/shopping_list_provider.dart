@@ -553,10 +553,11 @@ class ShoppingListProvider extends ChangeNotifier {
         }
       }
     } catch (e, stack) {
-      _log.warning(
+      _log.log(
         'Tag sync skipped (endpoint unavailable?): $e',
+        level: LogLevel.warning,
         source: 'ShoppingListProvider',
-        exception: e,
+        error: e,
         stackTrace: stack,
       );
       tagsEndpointAvailable = false;

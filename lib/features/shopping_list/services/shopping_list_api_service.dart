@@ -169,7 +169,8 @@ class ShoppingListApiService {
     final String endpoint = ApiConfig.shoppingTagsEndpoint;
     final Uri uri = Uri.parse(endpoint);
     try {
-      final http.Response response = await _client.get(
+      final http.Response response = await _client.send(
+        'GET',
         uri,
         headers: const <String, String>{'Accept': 'application/json'},
         retry: false,

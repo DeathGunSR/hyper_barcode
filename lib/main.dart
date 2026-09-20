@@ -18,6 +18,8 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'features/menu/screens/menu_page.dart';
 import 'features/shopping_list/providers/shopping_list_provider.dart';
 import 'features/shopping_list/models/shopping_list_item.dart';
+import 'core/services/app_logger.dart';
+import 'core/widgets/debug_overlay.dart';
 
 // Global font for Persian support in PDF
 pw.Font? _persianFont;
@@ -33,29 +35,6 @@ Future<void> _loadPersianFont() async {
 // String _shapeText(String text) {
 //   return Intl.letters(text, locale: 'fa_IR');
 // }
-
-// Logger class for debugging
-class AppLogger {
-  static final List<String> _logs = [];
-  static final int _maxLogs = 200;
-
-  static void log(String message) {
-    final timestamp = DateTime.now().toString().substring(0, 19);
-    final logEntry = '[$timestamp] $message';
-    _logs.add(logEntry);
-    if (_logs.length > _maxLogs) {
-      _logs.removeAt(0);
-    }
-    print(logEntry);
-  }
-
-  static List<String> getLogs() => List.unmodifiable(_logs);
-
-  static void clear() {
-    _logs.clear();
-    log('Logs cleared');
-  }
-}
 
 // Product model for local database
 class LocalProduct {
@@ -154,7 +133,15 @@ class LabelConfig {
 }
 
 void main() {
-  runApp(const BarcodeScannerApp());
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => ShoppingListProvider()),
+        ChangeNotifierProvider(create: (_) => AppLogger()),
+      ],
+      child: const BarcodeScannerApp(),
+    ),
+  );
 }
 
 class BarcodeScannerApp extends StatefulWidget {
@@ -201,41 +188,43 @@ class _BarcodeScannerAppState extends State<BarcodeScannerApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: _locale == 'fa' ? 'بارکد اسکنر' : 'Barcode Scanner',
-      debugShowCheckedModeBanner: false,
-      locale: Locale(_locale),
-      localizationsDelegates: [
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      supportedLocales: const [
-        Locale('fa'),
-        Locale('en'),
-      ],
-      themeMode: _themeMode,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.blue,
-          brightness: Brightness.light,
-        ),
-        useMaterial3: true,
-        fontFamily: 'Vazirmatn',
-      ),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.blue,
-          brightness: Brightness.dark,
-        ),
-        useMaterial3: true,
-        fontFamily: 'Vazirmatn',
-      ),
-      home: MenuPage(
-        currentLocale: _locale,
-        onLocaleChanged: updateLocale,
+    return DebugOverlay(
+      child: MaterialApp(
+        title: _locale == 'fa' ? 'بارکد اسکنر' : 'Barcode Scanner',
+        debugShowCheckedModeBanner: false,
+        locale: Locale(_locale),
+        localizationsDelegates: [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: const [
+          Locale('fa'),
+          Locale('en'),
+        ],
         themeMode: _themeMode,
-        onThemeModeChanged: updateThemeMode,
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: Colors.blue,
+            brightness: Brightness.light,
+          ),
+          useMaterial3: true,
+          fontFamily: 'Vazirmatn',
+        ),
+        darkTheme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: Colors.blue,
+            brightness: Brightness.dark,
+          ),
+          useMaterial3: true,
+          fontFamily: 'Vazirmatn',
+        ),
+        home: MenuPage(
+          currentLocale: _locale,
+          onLocaleChanged: updateLocale,
+          themeMode: _themeMode,
+          onThemeModeChanged: updateThemeMode,
+        ),
       ),
     );
   }
@@ -280,7 +269,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    AppLogger.log('App initialized');
+    AppLogger().info('App initialized');
     _initializeDatabase();
     _loadStoragePath();
   }
@@ -307,14 +296,14 @@ class _HomePageState extends State<HomePage> {
               last_synced TEXT
             )
           ''');
-          AppLogger.log('Database table created');
+          AppLogger().info('Database table created');
         },
       );
       
-      AppLogger.log('Database initialized at: $path');
+      AppLogger().info('Database initialized at: $path');
       await _loadLocalProducts();
     } catch (e) {
-      AppLogger.log('Error initializing database: $e');
+      AppLogger().info('Error initializing database: $e');
     }
   }
 
@@ -324,9 +313,9 @@ class _HomePageState extends State<HomePage> {
       setState(() {
         _storagePath = directory.path;
       });
-      AppLogger.log('Storage path loaded: $_storagePath');
+      AppLogger().info('Storage path loaded: $_storagePath');
     } catch (e) {
-      AppLogger.log('Error loading storage path: $e');
+      AppLogger().info('Error loading storage path: $e');
     }
   }
 
@@ -340,9 +329,9 @@ class _HomePageState extends State<HomePage> {
           return LocalProduct.fromMap(maps[i]);
         });
       });
-      AppLogger.log('Loaded ${_localProducts.length} products from local database');
+      AppLogger().info('Loaded ${_localProducts.length} products from local database');
     } catch (e) {
-      AppLogger.log('Error loading local products: $e');
+      AppLogger().info('Error loading local products: $e');
     }
   }
 
@@ -353,7 +342,7 @@ class _HomePageState extends State<HomePage> {
       _isSyncing = true;
     });
 
-    AppLogger.log('Starting product sync from WooCommerce');
+    AppLogger().info('Starting product sync from WooCommerce');
 
     try {
       int totalProducts = 0;
@@ -380,7 +369,7 @@ class _HomePageState extends State<HomePage> {
       bool hasMorePages = true;
 
       while (hasMorePages) {
-        AppLogger.log('Fetching products page $page');
+        AppLogger().info('Fetching products page $page');
         
         final url = Uri.parse(
           '$_wooCommerceUrl/wp-json/wc/v3/products?per_page=$perPage&page=$page&consumer_key=$_consumerKey&consumer_secret=$_consumerSecret&_fields=id,sku,regular_price,sale_price,name,meta_data,stock_quantity',
@@ -389,7 +378,7 @@ class _HomePageState extends State<HomePage> {
         final response = await http.get(url);
 
         if (response.statusCode != 200) {
-          AppLogger.log('Failed to fetch products page $page. Status: ${response.statusCode}');
+          AppLogger().info('Failed to fetch products page $page. Status: ${response.statusCode}');
           break;
         }
 
@@ -457,7 +446,7 @@ class _HomePageState extends State<HomePage> {
         await Future.delayed(const Duration(milliseconds: 300));
       }
 
-      AppLogger.log('Fetched ${fetchedProducts.length} products from WooCommerce');
+      AppLogger().info('Fetched ${fetchedProducts.length} products from WooCommerce');
 
       // Insert or update in local database
       if (_database != null) {
@@ -485,7 +474,7 @@ class _HomePageState extends State<HomePage> {
           }
         });
 
-        AppLogger.log('Database updated: $newCount new, $updatedCount updated');
+        AppLogger().info('Database updated: $newCount new, $updatedCount updated');
       }
 
       Navigator.pop(context); // Close progress dialog
@@ -504,7 +493,7 @@ class _HomePageState extends State<HomePage> {
       );
 
     } catch (e) {
-      AppLogger.log('Error syncing products: $e');
+      AppLogger().info('Error syncing products: $e');
       if (mounted) {
         Navigator.pop(context); // Close progress dialog
         ScaffoldMessenger.of(context).showSnackBar(
@@ -568,7 +557,7 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
-    AppLogger.log('Fetching product info for ${_barcodes.length} barcodes');
+    AppLogger().info('Fetching product info for ${_barcodes.length} barcodes');
 
     try {
       Map<String, ProductInfo> productMap = {};
@@ -578,18 +567,18 @@ class _HomePageState extends State<HomePage> {
 
       // Fetch all products page by page
       while (hasMorePages) {
-        AppLogger.log('Fetching products page $page');
+        AppLogger().info('Fetching products page $page');
         
         final url = Uri.parse(
           '$_wooCommerceUrl/wp-json/wc/v3/products?per_page=$perPage&page=$page&consumer_key=$_consumerKey&consumer_secret=$_consumerSecret&_fields=id,sku,regular_price,sale_price,name,meta_data',
         );
 
-        AppLogger.log('API Request: $url');
+        AppLogger().info('API Request: $url');
         final response = await http.get(url);
-        AppLogger.log('API Response Status: ${response.statusCode}');
+        AppLogger().info('API Response Status: ${response.statusCode}');
 
         if (response.statusCode != 200) {
-          AppLogger.log('Failed to fetch products page $page. Status: ${response.statusCode}');
+          AppLogger().info('Failed to fetch products page $page. Status: ${response.statusCode}');
           break;
         }
 
@@ -600,7 +589,7 @@ class _HomePageState extends State<HomePage> {
           break;
         }
 
-        AppLogger.log('Received ${products.length} products from page $page');
+        AppLogger().info('Received ${products.length} products from page $page');
 
         for (var product in products) {
           final sku = product['sku']?.toString() ?? '';
@@ -626,7 +615,7 @@ class _HomePageState extends State<HomePage> {
               coverPrice: regularPrice,
               salePrice: salePrice.isNotEmpty ? salePrice : regularPrice,
             );
-            AppLogger.log('Mapped SKU: $sku -> $name');
+            AppLogger().info('Mapped SKU: $sku -> $name');
           }
 
           // Map all barcodes (comma-separated) to this product
@@ -640,7 +629,7 @@ class _HomePageState extends State<HomePage> {
                   coverPrice: regularPrice,
                   salePrice: salePrice.isNotEmpty ? salePrice : regularPrice,
                 );
-                AppLogger.log('Mapped Barcode: $trimmedBarcode -> $name');
+                AppLogger().info('Mapped Barcode: $trimmedBarcode -> $name');
               }
             }
           }
@@ -655,7 +644,7 @@ class _HomePageState extends State<HomePage> {
         _productMap = productMap;
       });
 
-      AppLogger.log('Product info loading complete. Total products in map: ${productMap.length}');
+      AppLogger().info('Product info loading complete. Total products in map: ${productMap.length}');
       
       // Log how many scanned barcodes were found
       int foundCount = 0;
@@ -664,13 +653,13 @@ class _HomePageState extends State<HomePage> {
           foundCount++;
         }
       }
-      AppLogger.log('Found product info for $foundCount out of ${_barcodes.length} scanned barcodes');
+      AppLogger().info('Found product info for $foundCount out of ${_barcodes.length} scanned barcodes');
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('اطلاعات محصول دریافت شد: $foundCount از ${_barcodes.length} بارکد')),
       );
     } catch (e) {
-      AppLogger.log('Error fetching product info: $e');
+      AppLogger().info('Error fetching product info: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('خطا: $e')),
       );
@@ -749,7 +738,7 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
-    AppLogger.log('Generating PDF with ${items.length} items');
+    AppLogger().info('Generating PDF with ${items.length} items');
 
     try {
       // Load Persian font before generating PDF
@@ -794,7 +783,7 @@ class _HomePageState extends State<HomePage> {
         );
       }
 
-      AppLogger.log('PDF generated with $totalPages pages');
+      AppLogger().info('PDF generated with $totalPages pages');
 
       // Get app documents directory
       final directory = await getApplicationDocumentsDirectory();
@@ -805,7 +794,7 @@ class _HomePageState extends State<HomePage> {
       final file = File(filePath);
       await file.writeAsBytes(await pdf.save());
 
-      AppLogger.log('PDF saved to: $filePath');
+      AppLogger().info('PDF saved to: $filePath');
 
       // Share the PDF
       final result = await Share.shareXFiles(
@@ -815,14 +804,14 @@ class _HomePageState extends State<HomePage> {
       );
 
       if (result.status == ShareResultStatus.success) {
-        AppLogger.log('PDF shared successfully');
+        AppLogger().info('PDF shared successfully');
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('فایل PDF با موفقیت به اشتراک گذاشته شد')),
         );
       }
 
     } catch (e) {
-      AppLogger.log('Error generating PDF: $e');
+      AppLogger().info('Error generating PDF: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('خطا در تولید PDF: $e')),
       );
@@ -1290,12 +1279,12 @@ class _HomePageState extends State<HomePage> {
                   content: SizedBox(
                     width: double.maxFinite,
                     height: 400,
-                    child: AppLogger.getLogs().isEmpty
+                    child: AppLogger().logs.map((e) => e.toString()).toList().isEmpty
                         ? const Center(child: Text('هنوز لاگی ثبت نشده'))
                         : ListView.builder(
-                            itemCount: AppLogger.getLogs().length,
+                            itemCount: AppLogger().logs.map((e) => e.toString()).toList().length,
                             itemBuilder: (context, index) {
-                              final logs = AppLogger.getLogs();
+                              final logs = AppLogger().logs.map((e) => e.toString()).toList();
                               return Padding(
                                 padding: const EdgeInsets.symmetric(vertical: 2),
                                 child: SelectableText(
@@ -1309,7 +1298,7 @@ class _HomePageState extends State<HomePage> {
                   actions: [
                     TextButton.icon(
                       onPressed: () {
-                        AppLogger.clear();
+                        AppLogger().clearLogs();
                         Navigator.pop(context);
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('لاگ‌ها پاک شدند')),
@@ -1475,7 +1464,7 @@ class _HomePageState extends State<HomePage> {
                         for (final barcode in barcodes) {
                           if (barcode.rawValue != null && !_barcodes.contains(barcode.rawValue)) {
                             _addBarcode(barcode.rawValue!);
-                            AppLogger.log('Barcode scanned: ${barcode.rawValue}');
+                            AppLogger().info('Barcode scanned: ${barcode.rawValue}');
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                 content: Text('اسکن شد: ${barcode.rawValue}'),

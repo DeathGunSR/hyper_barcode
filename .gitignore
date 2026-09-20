@@ -1,22 +1,40 @@
 ```
-# Dependencies
-.pub/
-.build/
-.dart_tool/
-
 # Build artifacts
-build/
-**/generated_plugin_registrant.*
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.a
+*.out
+
+# Dependencies
+**/packages/
+**/.dart_tool/
+
+# Logs and temp files
+*.log
+*.tmp
+*.swp
 
 # Environment
 .env
 .env.local
-.env.*
+*.env.*
 
-# Logs
-*.log
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
 
-# OS generated files
-.DS_Store
-Thumbs.db
+# Coverage
+coverage/
+htmlcov/
+.coverage
+
+# Distribution
+dist/
+build/
+target/
 ```

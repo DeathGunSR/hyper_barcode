@@ -278,6 +278,147 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.currentLocale == 'fa' ? 'بارکد اسکنر' : 'Barcode Scanner'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.list),
+            onPressed: _showProductsList,
+          ),
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              if (value == 'settings') {
+                // Show settings
+              } else if (value == 'about') {
+                // Show about
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: 'settings', child: Text('تنظیمات')),
+              const PopupMenuItem(value: 'about', child: Text('درباره')),
+            ],
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          // Sync status bar
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            color: Colors.blue.shade50,
+            child: Row(
+              children: [
+                Icon(
+                  _isSyncing ? Icons.sync : Icons.cloud_done,
+                  size: 20,
+                  color: _isSyncing ? Colors.orange : Colors.green,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _isSyncing
+                        ? 'در حال همگام‌سازی...'
+                        : (_lastSyncTime != null
+                            ? 'آخرین همگام‌سازی: ${_formatDateTime(_lastSyncTime!)}'
+                            : 'بدون همگام‌سازی'),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: _isSyncing ? Colors.orange : Colors.grey.shade700,
+                    ),
+                  ),
+                ),
+                if (!_isSyncing)
+                  TextButton.icon(
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: const Text('همگام‌سازی'),
+                    onPressed: _syncProductsFromWooCommerce,
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(0, 32),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          
+          // Main content
+          Expanded(
+            child: MobileScanner(
+              onDetect: (capture) {
+                final List<Barcode> barcodes = capture.barcodes;
+                for (final barcode in barcodes) {
+                  if (barcode.rawValue != null) {
+                    _addBarcode(barcode.rawValue!);
+                  }
+                }
+              },
+              controller: MobileScannerController(
+                detectionSpeed: BarcodeDetectionSpeed.normal,
+                facing: CameraFacing.back,
+              ),
+            ),
+          ),
+          
+          // Bottom controls
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Theme.of(context).cardColor,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 8,
+                  offset: const Offset(0, -2),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        widget.currentLocale == 'fa'
+                            ? '${_barcodes.length} بارکد اسکن شده'
+                            : '${_barcodes.length} barcodes scanned',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    TextButton.icon(
+                      icon: const Icon(Icons.delete_outline),
+                      label: Text(widget.currentLocale == 'fa' ? 'پاک کردن' : 'Clear'),
+                      onPressed: _barcodes.isEmpty ? null : _clearBarcodes,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.info_outline),
+                        label: Text(widget.currentLocale == 'fa' ? 'دریافت اطلاعات' : 'Fetch Info'),
+                        onPressed: _barcodes.isEmpty ? null : _fetchProductInfo,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.print),
+                        label: Text(widget.currentLocale == 'fa' ? 'چاپ لیبل' : 'Print Labels'),
+                        onPressed: _barcodes.isEmpty ? null : _printLabels,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Future<void> _initializeDatabase() async {
     try {
@@ -571,18 +712,18 @@ class _HomePageState extends State<HomePage> {
   void _addBarcode(String barcode) {
     if (!_barcodes.contains(barcode)) {
       _barcodes.add(barcode);
-      notifyListeners();
+      setState(() {});
     }
   }
 
   void _removeBarcode(int index) {
     _barcodes.removeAt(index);
-    notifyListeners();
+    setState(() {});
   }
 
   void _clearBarcodes() {
     _barcodes.clear();
-    notifyListeners();
+    setState(() {});
   }
 
   Future<void> _fetchProductInfo() async {

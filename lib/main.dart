@@ -11,6 +11,7 @@ import 'package:provider/provider.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:collection' show HashMap, HashSet;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -250,7 +251,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final List<String> _barcodes = [];
-  Map<String, ProductInfo> _productMap = {};
+  Map<String, ProductInfo> _productMap = HashMap<String, ProductInfo>();
   String _storagePath = 'Application Documents Directory';
   Database? _database;
   List<LocalProduct> _localProducts = [];
@@ -273,6 +274,10 @@ class _HomePageState extends State<HomePage> {
     _initializeDatabase();
     _loadStoragePath();
   }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
 
   Future<void> _initializeDatabase() async {
     try {
@@ -360,19 +365,10 @@ class _HomePageState extends State<HomePage> {
 
       AppLogger().info('Background sync started');
 
-      // First, get total count
-      final url = Uri.parse(
-        '$_wooCommerceUrl/wp-json/wc/v3/products?per_page=1&page=1&consumer_key=$_consumerKey&consumer_secret=$_consumerSecret&_fields=id',
-      );
-      final response = await http.get(url);
-      
-      if (response.statusCode == 200) {
-        totalProducts = 1000; // Estimate
-      }
-
-      List<LocalProduct> fetchedProducts = [];
+      // Pre-allocate list with estimated capacity to reduce reallocations
+      List<LocalProduct> fetchedProducts = List<LocalProduct>.empty(growable: true);
       int page = 1;
-      int perPage = 100;
+      const int perPage = 100;
       bool hasMorePages = true;
 
       while (hasMorePages) {
@@ -396,6 +392,14 @@ class _HomePageState extends State<HomePage> {
           break;
         }
 
+        // Pre-allocate temporary list for this page
+        final List<LocalProduct> pageProducts = List<LocalProduct>.filled(
+          products.length, 
+          LocalProduct(sku: '', name: '', coverPrice: '', salePrice: '', mainBarcode: ''),
+          growable: false,
+        );
+        
+        int validIndex = 0;
         for (var product in products) {
           final sku = product['sku']?.toString() ?? '';
           if (sku.isEmpty) continue;
@@ -428,7 +432,7 @@ class _HomePageState extends State<HomePage> {
             }
           }
 
-          fetchedProducts.add(LocalProduct(
+          pageProducts[validIndex++] = LocalProduct(
             sku: sku,
             name: name,
             coverPrice: regularPrice,
@@ -437,21 +441,28 @@ class _HomePageState extends State<HomePage> {
             extraBarcodes: extraBarcodes,
             stockQuantity: double.tryParse(stockQuantity.toString()) ?? 0.0,
             lastSynced: DateTime.now(),
-          ));
+          );
 
           processedCount++;
         }
+        
+        // Add only valid products
+        fetchedProducts.addAll(pageProducts.take(validIndex));
 
         page++;
         totalProducts = processedCount + 100; // Update estimate
-        await Future.delayed(const Duration(milliseconds: 300));
+        // Reduced delay for better performance
+        await Future.delayed(const Duration(milliseconds: 200));
       }
 
       AppLogger().info('Fetched ${fetchedProducts.length} products from WooCommerce');
 
-      // Insert or update in local database
+      // Insert or update in local database with batch optimization
       if (_database != null) {
         await _database!.transaction((txn) async {
+          // Use batch operations for better performance
+          final Batch batch = txn.batch();
+          
           for (var product in fetchedProducts) {
             // Check if exists
             var existing = await txn.query(
@@ -461,10 +472,10 @@ class _HomePageState extends State<HomePage> {
             );
 
             if (existing.isEmpty) {
-              await txn.insert('products', product.toMap());
+              batch.insert('products', product.toMap());
               newCount++;
             } else {
-              await txn.update(
+              batch.update(
                 'products',
                 product.toMap(),
                 where: 'sku = ?',
@@ -473,6 +484,9 @@ class _HomePageState extends State<HomePage> {
               updatedCount++;
             }
           }
+          
+          // Execute all operations in one commit
+          await batch.commit(noResult: true);
         });
 
         AppLogger().info('Database updated: $newCount new, $updatedCount updated');
@@ -556,22 +570,19 @@ class _HomePageState extends State<HomePage> {
 
   void _addBarcode(String barcode) {
     if (!_barcodes.contains(barcode)) {
-      setState(() {
-        _barcodes.add(barcode);
-      });
+      _barcodes.add(barcode);
+      notifyListeners();
     }
   }
 
   void _removeBarcode(int index) {
-    setState(() {
-      _barcodes.removeAt(index);
-    });
+    _barcodes.removeAt(index);
+    notifyListeners();
   }
 
   void _clearBarcodes() {
-    setState(() {
-      _barcodes.clear();
-    });
+    _barcodes.clear();
+    notifyListeners();
   }
 
   Future<void> _fetchProductInfo() async {
@@ -585,9 +596,10 @@ class _HomePageState extends State<HomePage> {
     AppLogger().info('Fetching product info for ${_barcodes.length} barcodes');
 
     try {
-      Map<String, ProductInfo> productMap = {};
+      // Pre-allocate map with estimated capacity
+      Map<String, ProductInfo> productMap = HashMap<String, ProductInfo>();
       int page = 1;
-      int perPage = 100;
+      const int perPage = 100;
       bool hasMorePages = true;
 
       // Fetch all products page by page
@@ -640,7 +652,6 @@ class _HomePageState extends State<HomePage> {
               coverPrice: regularPrice,
               salePrice: salePrice.isNotEmpty ? salePrice : regularPrice,
             );
-            AppLogger().info('Mapped SKU: $sku -> $name');
           }
 
           // Map all barcodes (comma-separated) to this product
@@ -654,15 +665,14 @@ class _HomePageState extends State<HomePage> {
                   coverPrice: regularPrice,
                   salePrice: salePrice.isNotEmpty ? salePrice : regularPrice,
                 );
-                AppLogger().info('Mapped Barcode: $trimmedBarcode -> $name');
               }
             }
           }
         }
 
         page++;
-        // Small delay to avoid rate limiting
-        await Future.delayed(const Duration(milliseconds: 500));
+        // Reduced delay for better performance
+        await Future.delayed(const Duration(milliseconds: 300));
       }
 
       setState(() {
@@ -692,8 +702,8 @@ class _HomePageState extends State<HomePage> {
   }
 
   List<ScannedItem> _getScannedItemsWithProductInfo() {
-    // Build a barcode to product map from local database
-    Map<String, LocalProduct> barcodeToProduct = {};
+    // Build a barcode to product map from local database with pre-allocation
+    Map<String, LocalProduct> barcodeToProduct = HashMap<String, LocalProduct>();
     for (var product in _localProducts) {
       // Map by SKU
       barcodeToProduct[product.sku] = product;
@@ -710,8 +720,8 @@ class _HomePageState extends State<HomePage> {
       }
     }
 
-    List<ScannedItem> items = [];
-    Set<String> seenBarcodes = {};
+    List<ScannedItem> items = List<ScannedItem>.empty(growable: true);
+    Set<String> seenBarcodes = HashSet<String>();
 
     for (var barcode in _barcodes) {
       // Skip duplicates if unique only is enabled
@@ -774,10 +784,22 @@ class _HomePageState extends State<HomePage> {
       // Calculate how many pages we need
       final totalPages = (items.length / _labelConfig.labelsPerPage).ceil();
 
+      // Pre-build label widgets to avoid rebuilding on each page
+      final List<pw.Widget> allLabels = List<pw.Widget>.generate(items.length, (index) {
+        return _buildLabel(items[index]);
+      });
+
       for (int pageIndex = 0; pageIndex < totalPages; pageIndex++) {
         final startIndex = pageIndex * _labelConfig.labelsPerPage;
         final endIndex = (startIndex + _labelConfig.labelsPerPage).clamp(0, items.length);
-        final pageItems = items.sublist(startIndex, endIndex);
+        
+        // Use pre-built labels
+        final pageLabels = allLabels.sublist(startIndex, endIndex);
+        // Add placeholders for remaining slots
+        final remainingSlots = _labelConfig.labelsPerPage - pageLabels.length;
+        if (remainingSlots > 0) {
+          pageLabels.addAll(List<pw.Widget>.filled(remainingSlots, pw.Container()));
+        }
 
         pdf.addPage(
           pw.Page(
@@ -792,15 +814,7 @@ class _HomePageState extends State<HomePage> {
                 ),
                 child: pw.GridView(
                   crossAxisCount: _labelConfig.labelsPerRow,
-                  children: List.generate(_labelConfig.labelsPerPage, (index) {
-                    if (index < pageItems.length) {
-                      final item = pageItems[index];
-                      return _buildLabel(item);
-                    } else {
-                      // Empty placeholder
-                      return pw.Container();
-                    }
-                  }),
+                  children: pageLabels,
                 ),
               );
             },

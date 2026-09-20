@@ -1,40 +1,34 @@
 ```
 # Build artifacts
-*.o
-*.obj
-*.exe
-*.dll
-*.so
-*.a
-*.out
+*.dart_tool/
+*.build/
+build/
 
 # Dependencies
-**/packages/
-**/.dart_tool/
+.pub/
+vendor/
 
-# Logs and temp files
+# Logs
 *.log
-*.tmp
-*.swp
+**/logs/
 
 # Environment
 .env
 .env.local
-*.env.*
+.env.*
 
-# Editors
-.vscode/
+# IDE
 .idea/
+.vscode/
 *.swp
 *.swo
+
+# OS
+.DS_Store
+Thumbs.db
 
 # Coverage
 coverage/
 htmlcov/
-.coverage
-
-# Distribution
-dist/
-build/
-target/
+*.coverage
 ```

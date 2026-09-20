@@ -33,7 +33,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   }
 
   bool get _isFa => widget.currentLocale == 'fa';
-
+  
   Color _hexToColor(String hexString) => Color(hexColorToArgb32(hexString));
 
   @override

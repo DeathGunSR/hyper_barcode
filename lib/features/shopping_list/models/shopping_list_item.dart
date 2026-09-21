@@ -530,11 +530,32 @@ class CustomTagService {
     final List<ShoppingListTag> existing =
         existingCustomTags ?? await loadCustomTags();
 
-    // مدیریت تکراری بودن نام (فقط روی تگ‌های کاربر ساخته‌شده).
-    final ShoppingListTag? duplicate = TagQueries.findByName(
-      displayName,
-      tags: existing,
-    );
+    final String faNorm = fa.toLowerCase();
+    final String enNorm = en.toLowerCase();
+
+    // مدیریت تکراری بودن نام: مقایسه هر دو نام فارسی و انگلیسی
+    // به صورت Case-Insensitive + Trim. اگر هرکدام از nameFa یا nameEn
+    // با هرکدام از نام‌های Fa/En تگ‌های موجود تطبیق داشت → تکراری است.
+    ShoppingListTag? duplicate;
+    for (final ShoppingListTag t in existing) {
+      final String tFaNorm = t.nameFa.trim().toLowerCase();
+      final String tEnNorm = t.nameEn.trim().toLowerCase();
+      final bool faMatch =
+          faNorm.isNotEmpty && (faNorm == tFaNorm || faNorm == tEnNorm);
+      final bool enMatch =
+          enNorm.isNotEmpty && (enNorm == tEnNorm || enNorm == tFaNorm);
+      if (faMatch || enMatch) {
+        duplicate = t;
+        break;
+      }
+    }
+    if (duplicate == null) {
+      // Fallback به findByName برای اطمینان
+      duplicate = TagQueries.findByName(
+        displayName,
+        tags: existing,
+      );
+    }
     if (duplicate != null) {
       return TagCreateResult(
         status: TagCreateStatus.duplicate,

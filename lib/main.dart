@@ -345,6 +345,10 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final List<String> _barcodes = [];
+  final Set<int> _selectedBarcodeIndices = <int>{};
+  bool _isBarcodeSelectionMode = false;
+  bool _showScanFlash = false;
+  bool _showCheckIcon = false;
   Map<String, ProductInfo> _productMap = HashMap<String, ProductInfo>();
   String _storagePath = 'Application Documents Directory';
   Database? _database;
@@ -507,18 +511,71 @@ class _HomePageState extends State<HomePage> {
             
             // Main content
             Expanded(
-              child: MobileScanner(
-                onDetect: (capture) {
-                  final List<Barcode> barcodes = capture.barcodes;
-                  for (final barcode in barcodes) {
-                    if (barcode.rawValue != null) {
-                      _addBarcode(barcode.rawValue!);
-                    }
-                  }
-                },
-                controller: MobileScannerController(
-                  facing: CameraFacing.back,
-                ),
+              child: Stack(
+                alignment: Alignment.center,
+                children: <Widget>[
+                  MobileScanner(
+                    onDetect: (capture) {
+                      final List<Barcode> barcodes = capture.barcodes;
+                      for (final barcode in barcodes) {
+                        if (barcode.rawValue != null) {
+                          _addBarcode(barcode.rawValue!);
+                        }
+                      }
+                    },
+                    controller: MobileScannerController(
+                      facing: CameraFacing.back,
+                    ),
+                  ),
+                  Positioned.fill(
+                    child: CustomPaint(
+                      painter: ScanOverlayPainter(),
+                    ),
+                  ),
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: AnimatedOpacity(
+                        opacity: _showScanFlash ? 0.85 : 0,
+                        duration: const Duration(milliseconds: 80),
+                        curve: Curves.easeInOut,
+                        child: Container(
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                  IgnorePointer(
+                    child: AnimatedOpacity(
+                      opacity: _showCheckIcon ? 1.0 : 0.0,
+                      duration: const Duration(milliseconds: 180),
+                      curve: Curves.easeOut,
+                      child: AnimatedScale(
+                        scale: _showCheckIcon ? 1.0 : 0.4,
+                        duration: const Duration(milliseconds: 260),
+                        curve: Curves.elasticOut,
+                        child: Container(
+                          padding: const EdgeInsets.all(18),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.96),
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black26.withOpacity(0.3),
+                                blurRadius: 18,
+                                spreadRadius: 2,
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.check_circle,
+                            color: Colors.green,
+                            size: 64,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
             
@@ -543,18 +600,157 @@ class _HomePageState extends State<HomePage> {
                       Expanded(
                         child: Text(
                           widget.currentLocale == 'fa'
-                              ? '${_barcodes.length} بارکد اسکن شده'
-                              : '${_barcodes.length} barcodes scanned',
+                              ? (_isBarcodeSelectionMode
+                                  ? '${_selectedBarcodeIndices.length} از ${_barcodes.length} بارکد انتخاب شده'
+                                  : '${_barcodes.length} بارکد اسکن شده')
+                              : (_isBarcodeSelectionMode
+                                  ? '${_selectedBarcodeIndices.length} of ${_barcodes.length} selected'
+                                  : '${_barcodes.length} barcodes scanned'),
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ),
-                      TextButton.icon(
-                        icon: const Icon(Icons.delete_outline),
-                        label: Text(widget.currentLocale == 'fa' ? 'پاک کردن' : 'Clear'),
-                        onPressed: _barcodes.isEmpty ? null : _clearBarcodes,
-                      ),
+                      if (_isBarcodeSelectionMode) ...[
+                        IconButton(
+                          tooltip: widget.currentLocale == 'fa' ? 'انتخاب همه' : 'Select all',
+                          icon: const Icon(Icons.select_all),
+                          onPressed: _barcodes.isEmpty ? null : _toggleSelectAllBarcodes,
+                        ),
+                        IconButton(
+                          tooltip: widget.currentLocale == 'fa' ? 'حذف انتخاب‌شده‌ها' : 'Delete selected',
+                          icon: const Icon(Icons.delete_sweep_outlined, color: Colors.red),
+                          onPressed: _selectedBarcodeIndices.isEmpty ? null : _deleteSelectedBarcodes,
+                        ),
+                        IconButton(
+                          tooltip: widget.currentLocale == 'fa' ? 'خروج از حالت انتخاب' : 'Exit selection',
+                          icon: const Icon(Icons.close),
+                          onPressed: () => setState(() {
+                            _isBarcodeSelectionMode = false;
+                            _selectedBarcodeIndices.clear();
+                          }),
+                        ),
+                      ] else
+                        TextButton.icon(
+                          icon: const Icon(Icons.delete_outline),
+                          label: Text(widget.currentLocale == 'fa' ? 'پاک کردن' : 'Clear'),
+                          onPressed: _barcodes.isEmpty ? null : _clearBarcodes,
+                        ),
                     ],
                   ),
+                  if (_barcodes.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 62,
+                      child: ListView.builder(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: _barcodes.length,
+                        itemBuilder: (BuildContext context, int index) {
+                          final String bc = _barcodes[index];
+                          final bool selected = _selectedBarcodeIndices.contains(index);
+                          return GestureDetector(
+                            onLongPress: () => _toggleBarcodeSelection(index),
+                            onTap: () {
+                              if (_isBarcodeSelectionMode) {
+                                _toggleBarcodeSelection(index);
+                              }
+                            },
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 180),
+                              curve: Curves.easeOutCubic,
+                              width: 170,
+                              margin: EdgeInsets.only(
+                                left: index == 0 ? 0 : 8,
+                                right: index == _barcodes.length - 1 ? 0 : 0,
+                              ),
+                              decoration: BoxDecoration(
+                                color: selected
+                                    ? Colors.blue.shade50
+                                    : Theme.of(context).colorScheme.surfaceContainerHighest,
+                                border: Border.all(
+                                  color: selected ? Colors.blue : Colors.transparent,
+                                  width: 1.5,
+                                ),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                              child: Stack(
+                                clipBehavior: Clip.none,
+                                children: <Widget>[
+                                  Positioned(
+                                    top: -2,
+                                    right: -2,
+                                    child: IgnorePointer(
+                                      ignoring: !_isBarcodeSelectionMode,
+                                      child: AnimatedOpacity(
+                                        duration: const Duration(milliseconds: 160),
+                                        opacity: _isBarcodeSelectionMode ? 1 : 0,
+                                        child: Container(
+                                          padding: const EdgeInsets.all(3),
+                                          decoration: BoxDecoration(
+                                            color: selected ? Colors.blue : Colors.white,
+                                            shape: BoxShape.circle,
+                                            border: Border.all(color: Colors.blue.shade300, width: 1),
+                                          ),
+                                          child: Icon(
+                                            selected ? Icons.check : Icons.circle_outlined,
+                                            size: 12,
+                                            color: selected ? Colors.white : Colors.blue.shade300,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: <Widget>[
+                                      const Icon(Icons.qr_code_2, size: 14, color: Colors.blueGrey),
+                                      const SizedBox(height: 3),
+                                      Text(
+                                        bc,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      if (_productMap[bc]?.name != null)
+                                        Text(
+                                          _productMap[bc]!.name,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.grey.shade600,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                  if (!_isBarcodeSelectionMode)
+                                    Positioned(
+                                      top: -6,
+                                      left: -6,
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(14),
+                                        onTap: () => _removeBarcode(index),
+                                        child: Container(
+                                          decoration: const BoxDecoration(
+                                            color: Colors.redAccent,
+                                            shape: BoxShape.circle,
+                                          ),
+                                          padding: const EdgeInsets.all(4),
+                                          child: const Icon(Icons.close, size: 12, color: Colors.white),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 8),
                   Row(
                     children: [
@@ -1039,18 +1235,176 @@ class _HomePageState extends State<HomePage> {
   void _addBarcode(String barcode) {
     if (!_barcodes.contains(barcode)) {
       _barcodes.add(barcode);
+      HapticFeedback.heavyImpact();
+      Future<void>.delayed(const Duration(milliseconds: 40), () {
+        HapticFeedback.vibrate();
+        SystemSound.play(SystemSoundType.click);
+      });
+      Future<void>.delayed(const Duration(milliseconds: 100), () {
+        SystemSound.play(SystemSoundType.click);
+      });
+      setState(() {
+        _showScanFlash = true;
+        _showCheckIcon = true;
+      });
+      Future<void>.delayed(const Duration(milliseconds: 80), () {
+        if (mounted) {
+          setState(() {
+            _showScanFlash = false;
+          });
+        }
+      });
+      Future<void>.delayed(const Duration(milliseconds: 350), () {
+        if (mounted) {
+          setState(() {
+            _showCheckIcon = false;
+          });
+        }
+      });
       setState(() {});
     }
   }
 
   void _removeBarcode(int index) {
+    final String removedBarcode = _barcodes[index];
+    final String? removedName = _productMap[removedBarcode]?.name;
+
     _barcodes.removeAt(index);
+    _selectedBarcodeIndices.remove(index);
+    final Set<int> updated = <int>{};
+    for (final int i in _selectedBarcodeIndices) {
+      updated.add(i > index ? i - 1 : i);
+    }
+    _selectedBarcodeIndices
+      ..clear()
+      ..addAll(updated);
+    if (_selectedBarcodeIndices.isEmpty) {
+      _isBarcodeSelectionMode = false;
+    }
     setState(() {});
+
+    final ScaffoldMessengerState sm = ScaffoldMessenger.of(context);
+    sm.removeCurrentSnackBar();
+    sm.showSnackBar(
+      SnackBar(
+        content: Text(widget.currentLocale == 'fa'
+            ? 'بارکد $removedBarcode${removedName != null ? ' (${removedName.length > 18 ? '${removedName.substring(0, 18)}…' : removedName})' : ''} حذف شد'
+            : 'Barcode $removedBarcode removed'),
+        action: SnackBarAction(
+          label: widget.currentLocale == 'fa' ? 'بازگردانی' : 'UNDO',
+          textColor: Colors.yellowAccent,
+          onPressed: () {
+            setState(() {
+              _barcodes.insert(index, removedBarcode);
+              // به‌روز رسانی اندیس‌های انتخاب‌شده برای اندیس‌های >= index +1
+              final Set<int> restored = <int>{};
+              for (final int i in _selectedBarcodeIndices) {
+                restored.add(i >= index ? i + 1 : i);
+              }
+              _selectedBarcodeIndices
+                ..clear()
+                ..addAll(restored);
+            });
+          },
+        ),
+        duration: const Duration(seconds: 4),
+      ),
+    );
   }
 
   void _clearBarcodes() {
     _barcodes.clear();
+    _selectedBarcodeIndices.clear();
+    _isBarcodeSelectionMode = false;
     setState(() {});
+  }
+
+  void _toggleBarcodeSelection(int index) {
+    setState(() {
+      if (_selectedBarcodeIndices.contains(index)) {
+        _selectedBarcodeIndices.remove(index);
+        if (_selectedBarcodeIndices.isEmpty) {
+          _isBarcodeSelectionMode = false;
+        }
+      } else {
+        _isBarcodeSelectionMode = true;
+        _selectedBarcodeIndices.add(index);
+      }
+    });
+  }
+
+  Future<void> _deleteSelectedBarcodes() async {
+    if (_selectedBarcodeIndices.isEmpty) return;
+    final int count = _selectedBarcodeIndices.length;
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: Row(
+          children: <Widget>[
+            const Icon(Icons.delete_forever, color: Colors.red, size: 28),
+            const SizedBox(width: 10),
+            Flexible(
+              child: Text(widget.currentLocale == 'fa'
+                  ? 'حذف گروهی بارکدها'
+                  : 'Bulk delete barcodes'),
+            ),
+          ],
+        ),
+        content: Text(widget.currentLocale == 'fa'
+            ? 'آیا از حذف $count بارکد انتخاب‌شده مطمئن هستید؟\nاین عملیات قابل بازگشت نیست.'
+            : 'Are you sure you want to delete $count selected barcodes?\nThis operation cannot be undone.'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(widget.currentLocale == 'fa' ? 'انصراف' : 'Cancel'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            icon: const Icon(Icons.delete_sweep_outlined),
+            label: Text(widget.currentLocale == 'fa' ? 'حذف کن' : 'Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final List<int> sorted = _selectedBarcodeIndices.toList()..sort();
+    for (int i = sorted.length - 1; i >= 0; i--) {
+      _barcodes.removeAt(sorted[i]);
+    }
+    _selectedBarcodeIndices.clear();
+    _isBarcodeSelectionMode = false;
+    setState(() {});
+    final ScaffoldMessengerState sm = ScaffoldMessenger.of(context);
+    sm.removeCurrentSnackBar();
+    sm.showSnackBar(
+      SnackBar(
+        content: Text(widget.currentLocale == 'fa'
+            ? '$count بارکد انتخابی با موفقیت حذف شد'
+            : '$count selected barcodes successfully removed'),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  void _toggleSelectAllBarcodes() {
+    setState(() {
+      if (_selectedBarcodeIndices.length == _barcodes.length) {
+        _selectedBarcodeIndices.clear();
+        _isBarcodeSelectionMode = false;
+      } else {
+        _isBarcodeSelectionMode = true;
+        _selectedBarcodeIndices
+          ..clear()
+          ..addAll(List<int>.generate(_barcodes.length, (int i) => i));
+      }
+    });
   }
 
   Future<void> _fetchProductInfo() async {
@@ -1512,7 +1866,7 @@ class _HomePageState extends State<HomePage> {
                 ? pw.Row(
                     crossAxisAlignment: pw.CrossAxisAlignment.center,
                     children: <pw.Widget>[
-                      // قیمت روی جلد با خط خورده
+                      // قیمت روی جلد با خط خورده (کامل مشکی طبق درخواست کاربر)
                       pw.Expanded(
                         child: pw.Column(
                           mainAxisAlignment: pw.MainAxisAlignment.center,
@@ -1523,7 +1877,8 @@ class _HomePageState extends State<HomePage> {
                               style: pw.TextStyle(
                                 font: font,
                                 fontSize: 7.5,
-                                color: PdfColors.grey700,
+                                color: PdfColors.black,
+                                fontWeight: pw.FontWeight.bold,
                               ),
                               textAlign: pw.TextAlign.center,
                               textDirection: pw.TextDirection.rtl,
@@ -1535,8 +1890,10 @@ class _HomePageState extends State<HomePage> {
                                 font: font,
                                 fontSize: 10,
                                 decoration: pw.TextDecoration.lineThrough,
-                                decorationThickness: 1.2,
-                                color: PdfColors.grey600,
+                                decorationColor: PdfColors.black,
+                                decorationThickness: 1.5,
+                                color: PdfColors.black,
+                                fontWeight: pw.FontWeight.bold,
                               ),
                               textAlign: pw.TextAlign.center,
                               textDirection: pw.TextDirection.rtl,

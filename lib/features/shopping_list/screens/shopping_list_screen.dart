@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -21,15 +23,41 @@ class ShoppingListScreen extends StatefulWidget {
 }
 
 class _ShoppingListScreenState extends State<ShoppingListScreen> {
+  Timer? _periodicSyncTimer;
+  final Set<int> _selectedItemIds = <int>{};
+  bool _isItemSelectionMode = false;
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    _loginDialogShown = false;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
-      context
+      await context
           .read<ShoppingListProvider>()
           .initialize(widget.currentLocale);
+      // S-02 و S-01: یکبار سینک اولیه بعد از initialize
+      if (!mounted) return;
+      final ShoppingListProvider provider = context.read<ShoppingListProvider>();
+      if (provider.hasUser && !provider.isSyncing) {
+        unawaited(provider.syncWithServer());
+      }
+      // سینک دوره‌ای هر ۲۰ ثانیه (مثل inbox ایمیل که مدام بروز است)
+      _periodicSyncTimer?.cancel();
+      _periodicSyncTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+        if (!mounted) return;
+        final ShoppingListProvider p = context.read<ShoppingListProvider>();
+        if (p.hasUser && !p.isSyncing) {
+          unawaited(p.syncWithServer(silent: true));
+        }
+      });
     });
+  }
+
+  @override
+  void dispose() {
+    _periodicSyncTimer?.cancel();
+    super.dispose();
   }
 
   bool get _isFa => widget.currentLocale == 'fa';
@@ -60,20 +88,56 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                   onTap: () => _startSync(context, provider),
                 ),
               ),
-              // مدیریت تگ‌های سفارشی
-              IconButton(
-                icon: const Icon(Icons.local_offer),
-                onPressed: provider.hasUser
-                    ? () => _showTagManager(context, provider)
-                    : null,
-              ),
-              // تنظیمات کاربر
-              IconButton(
-                icon: const Icon(Icons.person),
-                onPressed: provider.hasUser
-                    ? () => _showUserSettings(context, provider)
-                    : null,
-              ),
+              if (_isItemSelectionMode) ...[
+                IconButton(
+                  tooltip: _isFa ? 'انتخاب همه' : 'Select all',
+                  icon: const Icon(Icons.select_all),
+                  onPressed: () {
+                    setState(() {
+                      if (_selectedItemIds.length == provider.filteredItems.length) {
+                        _selectedItemIds.clear();
+                        _isItemSelectionMode = false;
+                      } else {
+                        _selectedItemIds
+                          ..clear()
+                          ..addAll(provider.filteredItems
+                              .where((ShoppingListItem e) => e.id != null)
+                              .map<int>((ShoppingListItem e) => e.id!));
+                      }
+                    });
+                  },
+                ),
+                IconButton(
+                  tooltip: _isFa ? 'حذف انتخاب‌شده‌ها' : 'Delete selected',
+                  icon: const Icon(Icons.delete_sweep_outlined, color: Colors.red),
+                  onPressed: _selectedItemIds.isEmpty
+                      ? null
+                      : () => _showBulkDeleteConfirm(context, provider),
+                ),
+                IconButton(
+                  tooltip: _isFa ? 'خروج از حالت انتخاب' : 'Exit selection',
+                  icon: const Icon(Icons.close),
+                  onPressed: () => setState(() {
+                    _isItemSelectionMode = false;
+                    _selectedItemIds.clear();
+                  }),
+                ),
+              ] else ...[
+                // مدیریت تگ‌های سفارشی
+                IconButton(
+                  icon: const Icon(Icons.local_offer),
+                  onPressed: provider.hasUser
+                      ? () => _showTagManager(context, provider)
+                      : null,
+                ),
+                // تنظیمات کاربر
+                IconButton(
+                  icon: const Icon(Icons.person),
+                  onPressed: provider.hasUser
+                      ? () => _showUserSettings(context, provider)
+                      : null,
+                ),
+              ],
             ],
           ),
           // T-10: SafeArea برای edge-to-edge — نوار ناوبری با دکمه‌های خانه/برگشت.
@@ -506,132 +570,208 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
         ? Colors.grey
         : _hexToColor(itemTags.first.colorHex);
 
-    return Dismissible(
-      key: ValueKey<String>('item_${item.id}'),
-      direction: DismissDirection.endToStart,
-      background: Container(
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 20),
-        color: Colors.red,
-        child: const Icon(Icons.delete, color: Colors.white),
-      ),
-      onDismissed: (_) {
-        // T-08: حذف آیتم همراه با SnackBar Undo (رویکرد استاندارد Flutter).
-        final ShoppingListItem removedItem = item.copyWith();
-        provider.deleteItem(item.id!);
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(_isFa
-                ? 'آیتم «${removedItem.name}» حذف شد'
-                : 'Item "${removedItem.name}" deleted'),
-            duration: const Duration(seconds: 5),
-            action: SnackBarAction(
-              label: _isFa ? 'بازگردانی' : 'UNDO',
-              textColor: Colors.yellowAccent,
-              onPressed: () {
-                // کاربر Undo زد → آیتم را دوباره اضافه کن.
-                provider.addItem(removedItem.copyWith(
-                  id: null,
-                  serverId: null,
-                  pendingSync: true,
-                  isPurchased: false,
-                  purchasedAt: null,
-                  clearPurchasedAt: true,
-                  createdAt: DateTime.now(),
-                ));
+    final bool itemSelected = _isItemSelectionMode &&
+        item.id != null &&
+        _selectedItemIds.contains(item.id!);
+
+    return InkWell(
+      onLongPress: item.id == null
+          ? null
+          : () {
+              // ورود یا افزودن به حالت انتخاب
+              setState(() {
+                if (!_isItemSelectionMode) {
+                  _isItemSelectionMode = true;
+                  _selectedItemIds.clear();
+                }
+                if (_selectedItemIds.contains(item.id!)) {
+                  _selectedItemIds.remove(item.id!);
+                } else {
+                  _selectedItemIds.add(item.id!);
+                }
+                if (_selectedItemIds.isEmpty) {
+                  _isItemSelectionMode = false;
+                }
+              });
+            },
+      onTap: _isItemSelectionMode && item.id != null
+          ? () {
+              setState(() {
+                if (_selectedItemIds.contains(item.id!)) {
+                  _selectedItemIds.remove(item.id!);
+                } else {
+                  _selectedItemIds.add(item.id!);
+                }
+                if (_selectedItemIds.isEmpty) {
+                  _isItemSelectionMode = false;
+                }
+              });
+            }
+          : null,
+      child: Dismissible(
+        key: ValueKey<String>('item_${item.id}'),
+        direction: _isItemSelectionMode
+            ? DismissDirection.none
+            : DismissDirection.endToStart,
+        background: Container(
+          alignment: Alignment.centerRight,
+          padding: const EdgeInsets.only(right: 20),
+          color: Colors.red,
+          child: const Icon(Icons.delete, color: Colors.white),
+        ),
+        onDismissed: _isItemSelectionMode
+            ? null
+            : (_) {
+                // T-08: حذف آیتم همراه با SnackBar Undo (رویکرد استاندارد Flutter).
+                final ShoppingListItem removedItem = item.copyWith();
+                provider.deleteItem(item.id!);
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(_isFa
+                        ? 'آیتم «${removedItem.name}» حذف شد'
+                        : 'Item "${removedItem.name}" deleted'),
+                    duration: const Duration(seconds: 5),
+                    action: SnackBarAction(
+                      label: _isFa ? 'بازگردانی' : 'UNDO',
+                      textColor: Colors.yellowAccent,
+                      onPressed: () {
+                        // کاربر Undo زد → آیتم را دوباره اضافه کن.
+                        provider.addItem(removedItem.copyWith(
+                          id: null,
+                          serverId: null,
+                          pendingSync: true,
+                          isPurchased: false,
+                          purchasedAt: null,
+                          clearPurchasedAt: true,
+                          createdAt: DateTime.now(),
+                        ));
+                      },
+                    ),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
               },
-            ),
-            behavior: SnackBarBehavior.floating,
+        child: Card(
+          color: itemSelected ? Colors.blue.shade50 : null,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: itemSelected
+                ? BorderSide(color: Colors.blue.shade400, width: 1.6)
+                : BorderSide.none,
           ),
-        );
-      },
-      child: Card(
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              CircleAvatar(
-                backgroundColor: leadingColor,
-                child: Text(
-                  itemTags.isEmpty
-                      ? '?'
-                      : itemTags.first
-                          .displayName(provider.selectedLocale)
-                          .substring(0, 1),
-                  style: const TextStyle(color: Colors.white),
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                if (_isItemSelectionMode) ...<Widget>[
+                  Checkbox(
+                    value: itemSelected,
+                    activeColor: Colors.blue,
+                    onChanged: (bool? v) {
+                      if (item.id == null) return;
+                      setState(() {
+                        if (v ?? false) {
+                          _selectedItemIds.add(item.id!);
+                        } else {
+                          _selectedItemIds.remove(item.id!);
+                        }
+                        if (_selectedItemIds.isEmpty) {
+                          _isItemSelectionMode = false;
+                        }
+                      });
+                    },
+                  ),
+                  const SizedBox(width: 4),
+                ],
+                CircleAvatar(
+                  backgroundColor: leadingColor,
+                  child: Text(
+                    itemTags.isEmpty
+                        ? '?'
+                        : itemTags.first
+                            .displayName(provider.selectedLocale)
+                            .substring(0, 1),
+                    style: const TextStyle(color: Colors.white),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      item.name,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                        decoration: item.isPurchased
-                            ? TextDecoration.lineThrough
-                            : null,
-                        color: item.isPurchased ? Colors.grey : null,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${item.addedBy} • '
-                      '${_formatDate(item.createdAt, provider.selectedLocale)}'
-                      '${item.pendingSync ? ' • pending' : ''}',
-                      style: TextStyle(
-                          fontSize: 11, color: Colors.grey.shade600),
-                    ),
-                    // نمایش «همه» تگهای آیتم (چند‌به‌چند، بدون محدودیت).
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 4,
-                      children: <Widget>[
-                        for (final ShoppingListTag tag in itemTags)
-                          _buildSmallTagChip(
-                            tag: tag,
-                            locale: provider.selectedLocale,
-                            onRemove: () =>
-                                provider.toggleTagOnItem(item.id!, tag.id),
-                          ),
-                        _buildAddTagChip(context, provider, item),
-                      ],
-                    ),
-                    if (item.barcode.isNotEmpty) ...<Widget>[
-                      const SizedBox(height: 4),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
                       Text(
-                        item.barcode,
-                        style: const TextStyle(
-                            fontSize: 10, fontFamily: 'monospace'),
+                        item.name,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w500,
+                          decoration: item.isPurchased
+                              ? TextDecoration.lineThrough
+                              : null,
+                          color: item.isPurchased ? Colors.grey : null,
+                        ),
                       ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${item.addedBy} • '
+                        '${_formatDate(item.createdAt, provider.selectedLocale)}'
+                        '${item.pendingSync ? ' • pending' : ''}',
+                        style: TextStyle(
+                            fontSize: 11, color: Colors.grey.shade600),
+                      ),
+                      // نمایش «همه» تگهای آیتم (چند‌به‌چند، بدون محدودیت).
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: <Widget>[
+                          for (final ShoppingListTag tag in itemTags)
+                            _buildSmallTagChip(
+                              tag: tag,
+                              locale: provider.selectedLocale,
+                              onRemove: () =>
+                                  provider.toggleTagOnItem(item.id!, tag.id),
+                            ),
+                          if (!_isItemSelectionMode)
+                            _buildAddTagChip(context, provider, item),
+                        ],
+                      ),
+                      if (item.barcode.isNotEmpty) ...<Widget>[
+                        const SizedBox(height: 4),
+                        Text(
+                          item.barcode,
+                          style: const TextStyle(
+                              fontSize: 10, fontFamily: 'monospace'),
+                        ),
+                      ],
                     ],
+                  ),
+                ),
+                Column(
+                  children: <Widget>[
+                    Checkbox(
+                      value: item.isPurchased,
+                      onChanged: _isItemSelectionMode
+                          ? null
+                          : (bool? value) => provider
+                              .togglePurchaseStatus(item.id!, value ?? false),
+                    ),
+                    if (!_isItemSelectionMode)
+                      InkWell(
+                        onTap: () =>
+                            _showEditItemDialog(context, provider, item),
+                        child: const Padding(
+                          padding: EdgeInsets.all(4),
+                          child: Icon(Icons.edit,
+                              size: 18, color: Colors.blueGrey),
+                        ),
+                      ),
                   ],
                 ),
-              ),
-              Column(
-                children: <Widget>[
-                  Checkbox(
-                    value: item.isPurchased,
-                    onChanged: (bool? value) => provider
-                        .togglePurchaseStatus(item.id!, value ?? false),
-                  ),
-                  InkWell(
-                    onTap: () => _showEditItemDialog(context, provider, item),
-                    child: const Padding(
-                      padding: EdgeInsets.all(4),
-                      child: Icon(Icons.edit, size: 18, color: Colors.blueGrey),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -756,18 +896,36 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                   createdAt: DateTime.now(),
                 );
 
-                await provider.addItem(newItem);
+                final bool added = await provider.addItem(newItem);
                 if (!dialogContext.mounted) return;
                 Navigator.pop(dialogContext);
 
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(_isFa
-                        ? 'آیتم اضافه شد (در حال ارسال به سرور)'
-                        : 'Item added (uploading in background)'),
-                    duration: const Duration(seconds: 2),
-                  ),
-                );
+                if (added) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(_isFa
+                          ? 'آیتم اضافه شد (در حال ارسال به سرور)'
+                          : 'Item added (uploading in background)'),
+                      duration: const Duration(seconds: 2),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(_isFa
+                          ? 'این کالا قبلاً در لیست خرید وجود دارد (کالای تکراری)'
+                          : 'This item already exists in the shopping list (duplicate)'),
+                      duration: const Duration(seconds: 4),
+                      backgroundColor: Colors.orange,
+                      action: SnackBarAction(
+                        label: _isFa ? 'باشه' : 'OK',
+                        textColor: Colors.white,
+                        onPressed: () {},
+                      ),
+                    ),
+                  );
+                }
               },
               child: Text(_isFa ? 'افزودن' : 'Add'),
             ),
@@ -1278,6 +1436,77 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
             ],
           );
         },
+      ),
+    );
+  }
+
+  // ==================== حذف گروهی آیتم‌های لیست خرید ====================
+
+  Future<void> _showBulkDeleteConfirm(
+      BuildContext context, ShoppingListProvider provider) async {
+    if (_selectedItemIds.isEmpty) return;
+    final int count = _selectedItemIds.length;
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: Row(
+          children: <Widget>[
+            const Icon(Icons.delete_sweep, color: Colors.red, size: 28),
+            const SizedBox(width: 10),
+            Flexible(
+              child: Text(_isFa
+                  ? 'حذف گروهی از لیست خرید'
+                  : 'Bulk delete shopping list'),
+            ),
+          ],
+        ),
+        content: Text(_isFa
+            ? 'آیا از حذف $count آیتم انتخاب‌شده مطمئن هستید؟\nاین عملیات پس از تأیید، از سرور هم حذف خواهد شد.'
+            : 'Are you sure you want to delete $count selected items?\nThis will also be deleted from the server after sync.'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(_isFa ? 'انصراف' : 'Cancel'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            icon: const Icon(Icons.delete_forever),
+            label: Text(_isFa ? 'حذف کن' : 'Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    int deleted = 0;
+    final List<int> ids = _selectedItemIds.toList(growable: false);
+    for (final int id in ids) {
+      final bool ok = await provider.deleteItem(id);
+      if (ok) deleted++;
+    }
+    // T-07: سینک فوری پس از حذف گروهی (در هر deleteItem هم اجرا می‌شود، ولی صرفاً اطمینان)
+    unawaited(provider.syncWithServer());
+
+    if (!mounted) return;
+    setState(() {
+      _isItemSelectionMode = false;
+      _selectedItemIds.clear();
+    });
+
+    final ScaffoldMessengerState sm = ScaffoldMessenger.of(context);
+    sm.removeCurrentSnackBar();
+    sm.showSnackBar(
+      SnackBar(
+        content: Text(_isFa
+            ? '$deleted آیتم از $count مورد با موفقیت حذف شد'
+            : '$deleted of $count items deleted successfully'),
+        backgroundColor: deleted == count ? Colors.green : Colors.orange,
+        duration: const Duration(seconds: 4),
       ),
     );
   }

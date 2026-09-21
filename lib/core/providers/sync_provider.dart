@@ -154,6 +154,7 @@ class SyncProvider extends ChangeNotifier {
   Future<SyncState> startSync({
     required Future<void> Function(int progress, int total, String status)
         syncOperation,
+    bool silent = false,
   }) async {
     if (_isSyncing) {
       LoggingService().warning(
@@ -172,7 +173,7 @@ class SyncProvider extends ChangeNotifier {
     _currentStatus = 'Starting sync...';
     _lastError = null;
     _lastSummary = null;
-    _bannerVisible = true;
+    _bannerVisible = !silent;
     LoggingService().info('Sync started', source: 'SyncProvider');
     notifyListeners();
 

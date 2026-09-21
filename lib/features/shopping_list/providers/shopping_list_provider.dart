@@ -270,6 +270,43 @@ class ShoppingListProvider extends ChangeNotifier {
   /// افزودن آیتم جدید (فورا محلی ذخیره می‌شود؛ ارسال به سرور در پس‌زمینه).
   Future<bool> addItem(ShoppingListItem item) async {
     try {
+      final String newNameNorm = item.name.trim().toLowerCase();
+      final String newBarcodeNorm = item.barcode.trim();
+      final String addedBy = item.addedBy.trim().isEmpty
+          ? (_username ?? '').trim().toLowerCase()
+          : item.addedBy.trim().toLowerCase();
+
+      // ==================== جلوگیری از آیتم تکراری ====================
+      bool isDuplicate = false;
+      for (final ShoppingListItem existing in _items) {
+        final String existingNameNorm = existing.name.trim().toLowerCase();
+        final String existingBarcodeNorm = existing.barcode.trim();
+        final String existingAddedBy = existing.addedBy.trim().isEmpty
+            ? (_username ?? '').trim().toLowerCase()
+            : existing.addedBy.trim().toLowerCase();
+
+        final bool sameName = newNameNorm == existingNameNorm;
+        final bool sameBarcode = newBarcodeNorm.isNotEmpty &&
+            existingBarcodeNorm.isNotEmpty &&
+            newBarcodeNorm == existingBarcodeNorm;
+
+        if (sameBarcode) {
+          isDuplicate = true;
+          break;
+        }
+        if (sameName && addedBy == existingAddedBy) {
+          isDuplicate = true;
+          break;
+        }
+      }
+      if (isDuplicate) {
+        _log.info(
+          'Duplicate item rejected: name="${item.name}" barcode="${item.barcode}"',
+          source: 'ShoppingListProvider.addItem',
+        );
+        return false;
+      }
+
       final int newId = await _dbService.insertItem(item);
       _items.insert(0, item.copyWith(id: newId));
       _applyFilters();
@@ -395,7 +432,7 @@ class ShoppingListProvider extends ChangeNotifier {
   }
 
   /// حذف آیتم.
-  Future<void> deleteItem(int id) async {
+  Future<bool> deleteItem(int id) async {
     try {
       final int index =
           _items.indexWhere((ShoppingListItem item) => item.id == id);
@@ -419,10 +456,12 @@ class ShoppingListProvider extends ChangeNotifier {
       }
       // T-07: همگام‌سازی خودکار پس از هر تغییری
       unawaited(syncWithServer());
+      return true;
     } catch (e, stack) {
       _log.error('Failed to delete item', source: 'ShoppingListProvider',
           exception: e, stackTrace: stack);
       _setError('خطا در حذف آیتم', isNetwork: false);
+      return false;
     }
   }
 
@@ -482,8 +521,11 @@ class ShoppingListProvider extends ChangeNotifier {
   /// وضعیت از [SyncProvider] خوانده می‌شود؛ بنابراین:
   /// - درخواست تکراری هنگام اجرا رد می‌شود ([SyncState.alreadyInProgress]).
   /// - کاربر می‌تواند همزمان اسکن کند، آیتم اضافه کند یا صفحه عوض کند.
-  Future<SyncState> syncWithServer() {
-    return SyncProvider().startSync(syncOperation: _performSync);
+  Future<SyncState> syncWithServer({bool silent = false}) {
+    return SyncProvider().startSync(
+      syncOperation: _performSync,
+      silent: silent,
+    );
   }
 
   /// همگام‌سازی خودکار (فقط اگر سرور در دسترس باشد).

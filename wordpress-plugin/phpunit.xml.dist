@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit
+	bootstrap="tests/bootstrap.php"
+	colors="true"
+	verbose="true"
+	failOnRisky="true"
+	failOnWarning="false"
+>
+	<testsuites>
+		<!-- Always runnable: pure logic + protocol models, no WordPress required. -->
+		<testsuite name="pure">
+			<directory suffix="Test.php">tests</directory>
+			<exclude>tests/BlV2IntegrationTest.php</exclude>
+			<exclude>tests/BlV2Phase11IntegrationTest.php</exclude>
+		</testsuite>
+		<!-- Requires a WordPress test bootstrap (see tests/bootstrap.php). -->
+		<testsuite name="integration">
+			<file>tests/BlV2IntegrationTest.php</file>
+			<file>tests/BlV2Phase11IntegrationTest.php</file>
+		</testsuite>
+	</testsuites>
+	<php>
+		<!-- Set to 1 (with WP_TESTS_DIR or wp-env) to activate integration suite. -->
+		<env name="BARCODIFY_TEST_INTEGRATION" value="0"/>
+	</php>
+</phpunit>

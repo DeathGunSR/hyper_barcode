@@ -32,4 +32,11 @@ htmlcov/
 
 # Dependency cache
 pubspec.lock
+
+# Local PHP test tooling (offline PHPUnit runner — see wordpress-plugin/README.md)
+wordpress-plugin/tests/tools/*.phar
+.phpunit.result.cache
 ```
+/.freebuff
+/portfolio-drafts
+/docs

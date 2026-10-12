@@ -6,6 +6,16 @@
 
 This WordPress plugin provides a REST API for synchronizing shared shopping lists in the Barcodify mobile application.
 
+> **v3.1.0 — API v2 hardened (Phase 1.1).** Every change-log row now stores an
+> **immutable snapshot** of the resource at event time (`payload_json`), so a sync
+> response is never rebuilt from current state — the historical order
+> `Milk → Milk 2 → DELETE → Milk 3` is delivered exactly. Idempotent creates use a
+> **durable operation id** (the item row carries it, plus a queryable
+> `GET /barcodify/v2/operations/{key}`), and the initial backfill is
+> **restart-safe and checkpointed**.
+> The complete contract lives in [`docs/API_V2.md`](../docs/API_V2.md).
+> API v1 (`bl/v1`) below stays as the legacy/compatibility layer for the current Flutter client.
+
 ## نصب / Installation
 
 1. پوشه `barcodify-shopping-list` را در `/wp-content/plugins/` آپلود کنید
@@ -16,6 +26,9 @@ This WordPress plugin provides a REST API for synchronizing shared shopping list
 
 3. جداول دیتابیس به صورت خودکار با پیشوند `bl_` ساخته می‌شوند
    Database tables will be automatically created with `bl_` prefix
+
+4. مهاجرت اسکیمای نسخه ۵ و backfill به‌صورت خودکار و قابل‌ازسرگیری اجرا می‌شود
+   The schema-v5 migration and the resumable backfill run automatically
 
 ## جداول دیتابیس / Database Tables
 
@@ -79,6 +92,9 @@ Content-Type: application/json
 ```
 DELETE https://ebimarket.ir/wp-json/bl/v1/items/{id}
 ```
+> v1 delete is a **soft delete** (tombstone) since v3.0.0 and v1 reads exclude
+> tombstoned rows — a server-side compatibility mitigation, not a full fix.
+> See `docs/API_V2.md` §13.
 
 ### کاربران / Users
 
@@ -105,6 +121,18 @@ Content-Type: application/json
 POST https://ebimarket.ir/wp-json/bl/v1/sync
 ```
 
+### v2 (barcodify/v2) — سینک جدید
+
+```
+GET  /wp-json/barcodify/v2/products/sync?cursor=0&limit=200
+GET  /wp-json/barcodify/v2/items/sync?cursor=0&limit=200
+POST /wp-json/barcodify/v2/items            (Idempotency-Key)
+GET  /wp-json/barcodify/v2/operations/{key}
+GET  /wp-json/barcodify/v2/backfill/status
+```
+
+Full contract: [`docs/API_V2.md`](../docs/API_V2.md).
+
 ## صفحات مدیریت / Admin Pages
 
 پس از فعال‌سازی، یک منوی جدید به نام "Shopping List" به پیشخوان وردپرس اضافه می‌شود که شامل:
@@ -125,12 +153,73 @@ Currently, API access is public. For production, it's recommended to:
 
 1. احراز هویت با توکن JWT یا OAuth اضافه کنید
    Add JWT or OAuth authentication
-
 2. محدودیت نرخ درخواست (Rate Limiting) اعمال کنید
-   Implement rate limiting
-
+   Implement rate limiting (v2 already ships a per-IP limiter — see `docs/API_V2.md` §15.3)
 3. فقط به کاربران ثبت‌نام شده اجازه دسترسی دهید
    Restrict access to registered users only
+
+> **⚠ Production gate:** v2 is currently **public and rate-limited only**. It is
+> **not production-secure against catalog scraping**. Authentication is a
+> prerequisite before production deployment (`docs/API_V2.md` §15.4).
+>
+> **⚠ Never embed WooCommerce consumer key/secret in the mobile app.** The
+> client must not carry store credentials; rotate any key that has ever shipped.
+
+## جداول نسخه ۳ / Tables (v3.0.0)
+
+به جداول قبلی، این جداول اضافه می‌شوند:
+
+- `bl_shopping_items` (扩展): `updated_at`, `revision`, `deleted_at` (tombstone), `tags_json`
+- `bl_tags` — تگ‌های سلسله‌مراتبی (parent_id، revision، tombstone)
+- `bl_item_tags` — رابطه چند‌به‌چند آیتم/تگ
+- `bl_product_changes` — change log محصولات (منبع cursor سینک محصولات)
+- `bl_item_changes` — change log آیتم‌ها (منبع cursor سینک لیست خرید)
+- `bl_idempotency` — کلیدهای Idempotency-Key برای createهای تکراری‌ناپذیر
+
+## تغییرات نسخه ۳.۱.۰ / Phase 1.1 changes (schema v5)
+
+- `bl_product_changes.payload_json` و `bl_item_changes.payload_json` — snapshot
+  غیرقابل‌تغییر هر event؛ endpoint سینک فقط از همین snapshot پاسخ می‌سازد
+  (docs §4.2)
+- `bl_shopping_items.client_operation_id` (UNIQUE) — نشانه‌ی دائمی عملیات کلاینت؛
+  retry با همان کلید هرگز آیتم دوم نمی‌سازد (docs §8.3)
+- `bl_idempotency`: ستون‌های `status`, `resource_type`, `resource_id`,
+  `updated_at_gmt` + نگه‌داشت ۹۰ روزه (به‌جای ۴۸ ساعت) و endpoint وضعیت عملیات
+- backfill محصولات/آیتم‌ها: دسته‌ای، checkpoint‌دار، idempotent و قابل‌ازسرگیری
+  (`bl_v2_backfill_products`, `bl_v2_backfill_items`) + `GET /barcodify/v2/backfill/status`
+- خطاهای v2 (از جمله 429) همیشه در envelope قرارداد برمی‌گردند و
+  `Retry-After` واقعی دارند
+
+مهاجرت خودکار و idempotent است (`bl_shopping_list_db_version` → 5) و داده‌های قبلی حفظ می‌شوند.
+
+## تست‌ها / Tests
+
+بدون نیاز به WordPress (فقط PHP + PHPUnit):
+
+Without WordPress (PHP + PHPUnit only):
+
+```bash
+cd wordpress-plugin
+php tests/tools/phpunit-9.phar --testsuite pure   # یا: phpunit --testsuite pure
+php tests/tools/real-source-check.php             # اجرای کد واقعی پلاگین بدون وردپرس
+php tests/tools/static-contract-check.php         # اعتبارسنجی استاتیک suiteهای integration
+```
+
+`tests/tools/phpunit-9.phar` یک PHPUnit 9.6 همراه است تا اجرا به نصب global
+وابسته نباشد؛ اگر PHPUnit نصب دارید، همان `phpunit` کافی است.
+
+تست‌های integration به bootstrap وردپرس نیاز دارند:
+
+Integration tests need a WordPress bootstrap:
+
+```bash
+export WP_TESTS_DIR=/tmp/wordpress-tests-lib
+BARCODIFY_TEST_INTEGRATION=1 phpunit --testsuite integration
+```
+
+بدون آن، suiteهای integration به‌صورت خودکار skip می‌شوند و تست‌های pure اجرا می‌شوند.
+
+Without it, the integration suites self-skip with a clear message while the pure suite runs.
 
 ## سازگاری / Compatibility
 

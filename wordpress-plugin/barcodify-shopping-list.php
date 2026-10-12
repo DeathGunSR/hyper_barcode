@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: Barcodify Shopping List API
- * Description: REST API for shared shopping list synchronization with custom tables (bl_ prefix) and professional WP Admin dashboard
- * Version: 2.0.0
+ * Description: REST API for shared shopping list synchronization with custom tables (bl_ prefix) and professional WP Admin dashboard. v3.0.0 added the barcodify/v2 sync API: cursor deltas, tombstones, revisions, idempotency, tags. v3.1.0 makes every change event an immutable snapshot, adds durable operation ids (Option B), and makes the product/item backfill restart-safe — see docs/API_V2.md.
+ * Version: 3.1.0
  * Author: Barcodify Team
  * Text Domain: barcodify-shopping-list
  */
@@ -11,7 +11,16 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('BL_SHOPPING_LIST_VERSION', '2.0.0');
+define('BL_SHOPPING_LIST_VERSION', '3.1.0');
+
+require_once __DIR__ . '/includes/class-bl-common.php';
+require_once __DIR__ . '/includes/class-bl-schema.php';
+require_once __DIR__ . '/includes/class-bl-ratelimit.php';
+require_once __DIR__ . '/includes/class-bl-idempotency.php';
+require_once __DIR__ . '/includes/class-bl-product-changes.php';
+require_once __DIR__ . '/includes/class-bl-items-v2.php';
+require_once __DIR__ . '/includes/class-bl-backfill.php';
+require_once __DIR__ . '/includes/class-bl-tags-v2.php';
 
 /**
  * Activation hook - create custom tables with bl_ prefix
@@ -19,47 +28,30 @@ define('BL_SHOPPING_LIST_VERSION', '2.0.0');
 function bl_shopping_list_activate() {
     global $wpdb;
 
-    $charset_collate = $wpdb->get_charset_collate();
-
-    $table_items = $wpdb->prefix . 'bl_shopping_items';
-    $sql_items = "CREATE TABLE $table_items (
-        id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-        name VARCHAR(255) NOT NULL,
-        barcode VARCHAR(100) DEFAULT '',
-        tag VARCHAR(50) NOT NULL DEFAULT 'other',
-        is_purchased TINYINT(1) NOT NULL DEFAULT 0,
-        added_by VARCHAR(100) NOT NULL,
-        created_at DATETIME NOT NULL,
-        purchased_at DATETIME DEFAULT NULL,
-        synced_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        INDEX idx_is_purchased (is_purchased),
-        INDEX idx_tag (tag),
-        INDEX idx_added_by (added_by),
-        INDEX idx_created_at (created_at)
-    ) $charset_collate;";
-
-    $table_users = $wpdb->prefix . 'bl_users';
-    $sql_users = "CREATE TABLE $table_users (
-        id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-        username VARCHAR(100) NOT NULL UNIQUE,
-        phone_number VARCHAR(20) DEFAULT '',
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        last_sync DATETIME DEFAULT NULL,
-        is_active TINYINT(1) NOT NULL DEFAULT 1,
-        PRIMARY KEY (id),
-        INDEX idx_username (username),
-        INDEX idx_is_active (is_active)
-    ) $charset_collate;";
-
     require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
-    dbDelta($sql_items);
-    dbDelta($sql_users);
+
+    BL_Schema::create_tables();
 
     $role = get_role('administrator');
     if ($role) {
         $role->add_cap('manage_bl_shopping_list');
     }
+
+    // Record initial DB version for fresh installs (3 == legacy schema).
+    if (false === get_option('bl_shopping_list_db_version', false)) {
+        add_option('bl_shopping_list_db_version', '4', '', false);
+    }
+
+    // Bring the schema fully up to date (idempotent). This is also where a
+    // 4 -> 5 upgrade flags the re-snapshot backfill (payload_json).
+    BL_Schema::maybe_upgrade_db();
+
+    // Seed/re-snapshot the change logs: batched, checkpointed and idempotent
+    // (docs/API_V2.md §14.2). An already-complete backfill is a no-op; an
+    // interrupted one resumes from its last committed offset.
+    BL_Backfill::run('all');
+
+    BL_Schema::schedule_cron();
 
     flush_rewrite_rules();
 }
@@ -70,15 +62,66 @@ register_activation_hook(__FILE__, 'bl_shopping_list_activate');
  * Deactivation hook
  */
 function bl_shopping_list_deactivate() {
+    BL_Schema::unschedule_cron();
     flush_rewrite_rules();
 }
 
 register_deactivation_hook(__FILE__, 'bl_shopping_list_deactivate');
 
 /**
+ * Schema upgrades on every load (idempotent; no-op when current).
+ */
+add_action('plugins_loaded', array('BL_Schema', 'maybe_upgrade_db'));
+
+/**
+ * Daily retention cleanup cron (tombstones, idempotency entries).
+ */
+add_action('barcodify_v2_cleanup', array('BL_Schema', 'cleanup_expired'));
+
+/**
+ * Resumable backfill cron: continues an interrupted change-log seeding run.
+ */
+add_action('barcodify_v2_backfill_resume', array('BL_Backfill', 'resume'));
+
+/**
+ * Every v2 error leaves in the documented envelope, with Retry-After on 429.
+ * (Errors from a permission_callback — the rate limiter — would otherwise be
+ * wrapped by WordPress as {code,message,data}. See docs/API_V2.md §3/§18.)
+ */
+add_filter('rest_post_dispatch', array('BL_Rate_Limit', 'rest_post_dispatch'), 10, 3);
+
+/**
+ * WooCommerce change tracking (product upsert/delete tombstones).
+ */
+add_action('init', array('BL_Product_Changes', 'init'));
+
+/**
  * Register REST API routes
  */
 function bl_shopping_list_register_routes() {
+    // ==================== v2: barcodify/v2 (new sync API) ====================
+    register_rest_route('barcodify/v2', '/products/sync', array(
+        'methods' => WP_REST_Server::READABLE,
+        'callback' => 'bl_v2_rest_products_sync',
+        'permission_callback' => BL_Rate_Limit::permission('sync'),
+        'args' => array(
+            'cursor' => array('required' => false, 'type' => 'string'),
+            'limit' => array('required' => false, 'type' => 'integer'),
+        ),
+    ));
+
+    // Backfill observability: whether the change log is fully seeded (§14.2).
+    register_rest_route('barcodify/v2', '/backfill/status', array(
+        'methods' => WP_REST_Server::READABLE,
+        'callback' => array('BL_Backfill', 'rest_status'),
+        'permission_callback' => BL_Rate_Limit::permission('read'),
+    ));
+
+    BL_Items_V2::register_routes();
+    BL_Tags_V2::register_routes();
+    BL_Idempotency::register_routes();
+
+    // ==================== v1: bl/v1 (legacy — kept for the Flutter app) ====================
     register_rest_route('bl/v1', '/items', array(
         'methods' => WP_REST_Server::READABLE,
         'callback' => 'bl_api_get_items',
@@ -130,10 +173,37 @@ function bl_shopping_list_register_routes() {
 
 add_action('rest_api_init', 'bl_shopping_list_register_routes');
 
+// ==================== barcodify/v2 callbacks ====================
+
+function bl_v2_rest_products_sync($request) {
+    return BL_Product_Changes::rest_sync($request);
+}
+
+/**
+ * Seed/re-snapshot bl_product_changes from the published catalog.
+ *
+ * Kept as a thin wrapper for backward compatibility (it used to be the
+ * one-shot activation routine). All the work now lives in BL_Backfill:
+ * batched, offset-checkpointed, resumable and idempotent — a crash mid-run
+ * re-runs at most one batch and writes nothing twice.
+ *
+ * @return array Per-feed summary.
+ */
+function bl_v2_backfill_product_changes() {
+    return BL_Backfill::run('all');
+}
+
+// ==================== v1 callbacks (legacy) ====================
+
+/**
+ * v1 item shape — identical to the original plugin output (string-typed
+ * values included). Soft-deleted rows are excluded so the legacy client
+ * never sees tombstones (docs/API_V2.md §13).
+ */
 function bl_api_get_items($request) {
     global $wpdb;
     $table = $wpdb->prefix . 'bl_shopping_items';
-    $items = $wpdb->get_results("SELECT * FROM $table ORDER BY created_at DESC", ARRAY_A);
+    $items = $wpdb->get_results("SELECT id, name, barcode, tag, is_purchased, added_by, created_at, purchased_at, synced_at FROM $table WHERE deleted_at IS NULL ORDER BY created_at DESC", ARRAY_A);
     return new WP_REST_Response($items, 200);
 }
 
@@ -179,19 +249,26 @@ function bl_api_update_item($request) {
     $result = $wpdb->update($table, $data, array('id' => $id));
 
     if ($result !== false) {
-        $item = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table WHERE id = %d", $id), ARRAY_A);
+        $item = $wpdb->get_row($wpdb->prepare("SELECT id, name, barcode, tag, is_purchased, added_by, created_at, purchased_at, synced_at FROM $table WHERE id = %d AND deleted_at IS NULL", $id), ARRAY_A);
         return new WP_REST_Response($item, 200);
     }
     return new WP_REST_Response(array('error' => 'Failed to update item'), 500);
 }
 
+/**
+ * v1 delete — legacy wire format preserved ({success:true} / {error:...}),
+ * but the delete itself is a SHARED soft delete (tombstone) so the
+ * resurrection bug is closed for the legacy client too
+ * (docs/API_V2.md §13).
+ */
 function bl_api_delete_item($request) {
-    global $wpdb;
-    $table = $wpdb->prefix . 'bl_shopping_items';
-    $params = $request->get_params();
-    $id = intval($params['id']);
-    $result = $wpdb->delete($table, array('id' => $id));
-    if ($result) return new WP_REST_Response(array('success' => true), 200);
+    $deleted = BL_Items_V2::soft_delete(intval($request->get_params()['id']));
+    if (true === $deleted) {
+        return new WP_REST_Response(array('success' => true), 200);
+    }
+    if (is_wp_error($deleted) && 'barcodify_not_found' === $deleted->get_error_code()) {
+        return new WP_REST_Response(array('error' => 'Failed to delete item'), 500);
+    }
     return new WP_REST_Response(array('error' => 'Failed to delete item'), 500);
 }
 
@@ -286,14 +363,14 @@ function bl_admin_page_dashboard() {
     $items_table = $wpdb->prefix . 'bl_shopping_items';
     $users_table = $wpdb->prefix . 'bl_users';
 
-    $total_items = (int) $wpdb->get_var("SELECT COUNT(*) FROM $items_table");
+    $total_items = (int) $wpdb->get_var("SELECT COUNT(*) FROM $items_table WHERE deleted_at IS NULL");
     $total_users = (int) $wpdb->get_var("SELECT COUNT(*) FROM $users_table");
-    $pending_items = (int) $wpdb->get_var("SELECT COUNT(*) FROM $items_table WHERE is_purchased = 0");
-    $purchased_items = (int) $wpdb->get_var("SELECT COUNT(*) FROM $items_table WHERE is_purchased = 1");
+    $pending_items = (int) $wpdb->get_var("SELECT COUNT(*) FROM $items_table WHERE is_purchased = 0 AND deleted_at IS NULL");
+    $purchased_items = (int) $wpdb->get_var("SELECT COUNT(*) FROM $items_table WHERE is_purchased = 1 AND deleted_at IS NULL");
 
     $recent_items = $wpdb->get_results(
         "SELECT id, name, barcode, tag, added_by, is_purchased, created_at
-         FROM $items_table ORDER BY created_at DESC LIMIT 10",
+         FROM $items_table WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 10",
         ARRAY_A
     );
 
@@ -331,7 +408,7 @@ function bl_admin_page_dashboard() {
                 <div style="display: flex; align-items: center; justify-content: space-between;">
                     <div>
                         <p style="margin: 0; color: #646970; font-size: 13px;"><?php echo esc_html($isFa ? 'در انتظار خرید' : 'Pending Purchase'); ?></p>
-                        <p style="font-size: 34px; margin: 8px 0 0 0; font-weight: 700; color: #dba617;"><?php echo esc_html($pending_items); ?></p>
+                        <p style="font-size: 34px; margin: 8px 0 0 0; font-weight: 700; color: #1d2327;"><?php echo esc_html($pending_items); ?></p>
                     </div>
                     <span class="dashicons dashicons-clock" style="font-size: 40px; width: 40px; height: 40px; color: #dba617;"></span>
                 </div>
@@ -341,7 +418,7 @@ function bl_admin_page_dashboard() {
                 <div style="display: flex; align-items: center; justify-content: space-between;">
                     <div>
                         <p style="margin: 0; color: #646970; font-size: 13px;"><?php echo esc_html($isFa ? 'خریداری‌شده' : 'Purchased'); ?></p>
-                        <p style="font-size: 34px; margin: 8px 0 0 0; font-weight: 700; color: #00a32a;"><?php echo esc_html($purchased_items); ?></p>
+                        <p style="font-size: 34px; margin: 8px 0 0 0; font-weight: 700; color: #1d2327;"><?php echo esc_html($purchased_items); ?></p>
                     </div>
                     <span class="dashicons dashicons-yes-alt" style="font-size: 40px; width: 40px; height: 40px; color: #00a32a;"></span>
                 </div>
@@ -581,12 +658,14 @@ function bl_admin_page_items() {
         wp_die(esc_html__('You do not have sufficient permissions to access this page.', 'barcodify-shopping-list'));
     }
 
-    // Handle Single Delete
+    // Handle Single Delete — uses the shared soft delete (tombstone), so an
+    // admin deletion propagates to devices as a syncable delete instead of
+    // being re-imported from devices that still hold the row.
     if (isset($_GET['action']) && $_GET['action'] === 'delete_item' && !empty($_GET['id'])) {
         $id = intval($_GET['id']);
         check_admin_referer('bl_delete_item_' . $id);
-        $deleted = $wpdb->delete($items_table, array('id' => $id));
-        if ($deleted !== false) {
+        $deleted = BL_Items_V2::soft_delete($id);
+        if (true === $deleted || is_wp_error($deleted)) {
             $notice = '<div class="notice notice-success is-dismissible"><p>' .
                 sprintf(esc_html($isFa ? 'اقلام شماره %d با موفقیت حذف شد.' : 'Item #%d deleted successfully.'), $id)
                 . '</p></div>';
@@ -595,7 +674,7 @@ function bl_admin_page_items() {
         }
     }
 
-    // Handle Bulk Delete
+    // Handle Bulk Delete — same shared soft delete per id.
     if (isset($_POST['bl_items_submit']) && !empty($_POST['bulk_action']) && !empty($_POST['item_ids'])) {
         check_admin_referer('bl_bulk_items');
         $action = sanitize_text_field(wp_unslash($_POST['bulk_action']));
@@ -603,8 +682,8 @@ function bl_admin_page_items() {
         $count = 0;
         if ($action === 'delete' && !empty($item_ids)) {
             foreach ($item_ids as $iid) {
-                $ok = $wpdb->delete($items_table, array('id' => intval($iid)));
-                if ($ok !== false) $count++;
+                $ok = BL_Items_V2::soft_delete(intval($iid));
+                if (true === $ok || is_wp_error($ok)) $count++;
             }
             $notice = '<div class="notice notice-success is-dismissible"><p>' .
                 sprintf(esc_html($isFa ? '%d اقلام با موفقیت حذف شد.' : '%d item(s) deleted successfully.'), $count)
@@ -619,9 +698,9 @@ function bl_admin_page_items() {
     $f_tag = isset($_GET['f_tag']) ? sanitize_text_field(wp_unslash($_GET['f_tag'])) : '';
 
     $all_users = $wpdb->get_col("SELECT DISTINCT username FROM $users_table ORDER BY username ASC");
-    $all_tags = $wpdb->get_col("SELECT DISTINCT tag FROM $items_table ORDER BY tag ASC");
+    $all_tags = $wpdb->get_col("SELECT DISTINCT tag FROM $items_table WHERE deleted_at IS NULL ORDER BY tag ASC");
 
-    $where = [];
+    $where = ["deleted_at IS NULL"];
     $args = [];
     if ($s !== '') {
         $where[] = "(name LIKE %s OR barcode LIKE %s)";
@@ -641,7 +720,7 @@ function bl_admin_page_items() {
         $where[] = "tag = %s";
         $args[] = $f_tag;
     }
-    $where_sql = !empty($where) ? 'WHERE ' . implode(' AND ', $where) : '';
+    $where_sql = 'WHERE ' . implode(' AND ', $where);
     $query = "SELECT * FROM $items_table $where_sql ORDER BY created_at DESC LIMIT 500";
     if (!empty($args)) {
         $query = $wpdb->prepare($query, $args);
